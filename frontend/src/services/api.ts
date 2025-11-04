@@ -9,7 +9,7 @@ class ApiService {
   private client: AxiosInstance;
   private baseUrl: string;
 
-  constructor(baseUrl: string = 'http://localhost:5000') {
+  constructor(baseUrl: string = 'http://localhost:5010') {
     this.baseUrl = baseUrl;
     this.client = axios.create({
       baseURL: this.baseUrl,
