@@ -1,0 +1,340 @@
+version: '3.8'
+
+services:
+  # ========================================
+  # NORTH AMERICA REGION
+  # ========================================
+
+  mongodb-na-primary:
+    image: mongo:6.0
+    container_name: mongodb-na-primary
+    hostname: mongodb-na-primary
+    command: mongod --replSet rs-na --bind_ip_all --port 27017
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-na-primary-data:/data/db
+      - ./mongodb-init:/docker-entrypoint-initdb.d
+    networks:
+      - network-na
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb-na-secondary1:
+    image: mongo:6.0
+    container_name: mongodb-na-secondary1
+    hostname: mongodb-na-secondary1
+    command: mongod --replSet rs-na --bind_ip_all --port 27017
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb-na-secondary1-data:/data/db
+    networks:
+      - network-na
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb-na-secondary2:
+    image: mongo:6.0
+    container_name: mongodb-na-secondary2
+    hostname: mongodb-na-secondary2
+    command: mongod --replSet rs-na --bind_ip_all --port 27017
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongodb-na-secondary2-data:/data/db
+    networks:
+      - network-na
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  flask-backend-na:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: flask-backend-na
+    hostname: flask-backend-na
+    ports:
+      - "5000:5000"
+    environment:
+      - REGION=north_america
+      - MONGODB_URI=mongodb://mongodb-na-primary:27017,mongodb-na-secondary1:27017,mongodb-na-secondary2:27017/meshnetwork?replicaSet=rs-na
+      - MONGODB_REPLICA_SET=rs-na
+      - FLASK_PORT=5000
+      - REMOTE_REGIONS=["http://flask-backend-eu:5001", "http://flask-backend-ap:5002"]
+      - SYNC_INTERVAL=5
+    networks:
+      - network-na
+      - network-global
+    depends_on:
+      mongodb-na-primary:
+        condition: service_healthy
+      mongodb-na-secondary1:
+        condition: service_healthy
+      mongodb-na-secondary2:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:5000/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ========================================
+  # EUROPE REGION
+  # ========================================
+
+  mongodb-eu-primary:
+    image: mongo:6.0
+    container_name: mongodb-eu-primary
+    hostname: mongodb-eu-primary
+    command: mongod --replSet rs-eu --bind_ip_all --port 27017
+    ports:
+      - "27020:27017"
+    volumes:
+      - mongodb-eu-primary-data:/data/db
+      - ./mongodb-init:/docker-entrypoint-initdb.d
+    networks:
+      - network-eu
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb-eu-secondary1:
+    image: mongo:6.0
+    container_name: mongodb-eu-secondary1
+    hostname: mongodb-eu-secondary1
+    command: mongod --replSet rs-eu --bind_ip_all --port 27017
+    ports:
+      - "27021:27017"
+    volumes:
+      - mongodb-eu-secondary1-data:/data/db
+    networks:
+      - network-eu
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb-eu-secondary2:
+    image: mongo:6.0
+    container_name: mongodb-eu-secondary2
+    hostname: mongodb-eu-secondary2
+    command: mongod --replSet rs-eu --bind_ip_all --port 27017
+    ports:
+      - "27022:27017"
+    volumes:
+      - mongodb-eu-secondary2-data:/data/db
+    networks:
+      - network-eu
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  flask-backend-eu:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: flask-backend-eu
+    hostname: flask-backend-eu
+    ports:
+      - "5001:5001"
+    environment:
+      - REGION=europe
+      - MONGODB_URI=mongodb://mongodb-eu-primary:27017,mongodb-eu-secondary1:27017,mongodb-eu-secondary2:27017/meshnetwork?replicaSet=rs-eu
+      - MONGODB_REPLICA_SET=rs-eu
+      - FLASK_PORT=5001
+      - REMOTE_REGIONS=["http://flask-backend-na:5000", "http://flask-backend-ap:5002"]
+      - SYNC_INTERVAL=5
+    networks:
+      - network-eu
+      - network-global
+    depends_on:
+      mongodb-eu-primary:
+        condition: service_healthy
+      mongodb-eu-secondary1:
+        condition: service_healthy
+      mongodb-eu-secondary2:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:5001/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ========================================
+  # ASIA-PACIFIC REGION
+  # ========================================
+
+  mongodb-ap-primary:
+    image: mongo:6.0
+    container_name: mongodb-ap-primary
+    hostname: mongodb-ap-primary
+    command: mongod --replSet rs-ap --bind_ip_all --port 27017
+    ports:
+      - "27023:27017"
+    volumes:
+      - mongodb-ap-primary-data:/data/db
+      - ./mongodb-init:/docker-entrypoint-initdb.d
+    networks:
+      - network-ap
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb-ap-secondary1:
+    image: mongo:6.0
+    container_name: mongodb-ap-secondary1
+    hostname: mongodb-ap-secondary1
+    command: mongod --replSet rs-ap --bind_ip_all --port 27017
+    ports:
+      - "27024:27017"
+    volumes:
+      - mongodb-ap-secondary1-data:/data/db
+    networks:
+      - network-ap
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb-ap-secondary2:
+    image: mongo:6.0
+    container_name: mongodb-ap-secondary2
+    hostname: mongodb-ap-secondary2
+    command: mongod --replSet rs-ap --bind_ip_all --port 27017
+    ports:
+      - "27025:27017"
+    volumes:
+      - mongodb-ap-secondary2-data:/data/db
+    networks:
+      - network-ap
+      - network-global
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  flask-backend-ap:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: flask-backend-ap
+    hostname: flask-backend-ap
+    ports:
+      - "5002:5002"
+    environment:
+      - REGION=asia_pacific
+      - MONGODB_URI=mongodb://mongodb-ap-primary:27017,mongodb-ap-secondary1:27017,mongodb-ap-secondary2:27017/meshnetwork?replicaSet=rs-ap
+      - MONGODB_REPLICA_SET=rs-ap
+      - FLASK_PORT=5002
+      - REMOTE_REGIONS=["http://flask-backend-na:5000", "http://flask-backend-eu:5001"]
+      - SYNC_INTERVAL=5
+    networks:
+      - network-ap
+      - network-global
+    depends_on:
+      mongodb-ap-primary:
+        condition: service_healthy
+      mongodb-ap-secondary1:
+        condition: service_healthy
+      mongodb-ap-secondary2:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:5002/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ========================================
+  # FRONTEND
+  # ========================================
+
+  react-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: react-frontend
+    hostname: react-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_NA_BACKEND=http://localhost:5000
+      - REACT_APP_EU_BACKEND=http://localhost:5001
+      - REACT_APP_AP_BACKEND=http://localhost:5002
+    networks:
+      - network-global
+    depends_on:
+      - flask-backend-na
+      - flask-backend-eu
+      - flask-backend-ap
+
+# ========================================
+# NETWORKS
+# ========================================
+
+networks:
+  network-na:
+    driver: bridge
+    name: network-na
+  network-eu:
+    driver: bridge
+    name: network-eu
+  network-ap:
+    driver: bridge
+    name: network-ap
+  network-global:
+    driver: bridge
+    name: network-global
+
+# ========================================
+# VOLUMES
+# ========================================
+
+volumes:
+  mongodb-na-primary-data:
+  mongodb-na-secondary1-data:
+  mongodb-na-secondary2-data:
+  mongodb-eu-primary-data:
+  mongodb-eu-secondary1-data:
+  mongodb-eu-secondary2-data:
+  mongodb-ap-primary-data:
+  mongodb-ap-secondary1-data:
+  mongodb-ap-secondary2-data:
