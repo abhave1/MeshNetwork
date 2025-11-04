@@ -14,7 +14,6 @@ services:
       - "27017:27017"
     volumes:
       - mongodb-na-primary-data:/data/db
-      - ./mongodb-init:/docker-entrypoint-initdb.d
     networks:
       - network-na
       - network-global
@@ -70,13 +69,13 @@ services:
     container_name: flask-backend-na
     hostname: flask-backend-na
     ports:
-      - "5000:5000"
+      - "5010:5010"
     environment:
       - REGION=north_america
       - MONGODB_URI=mongodb://mongodb-na-primary:27017,mongodb-na-secondary1:27017,mongodb-na-secondary2:27017/meshnetwork?replicaSet=rs-na
       - MONGODB_REPLICA_SET=rs-na
-      - FLASK_PORT=5000
-      - REMOTE_REGIONS=["http://flask-backend-eu:5001", "http://flask-backend-ap:5002"]
+      - FLASK_PORT=5010
+      - REMOTE_REGIONS=["http://flask-backend-eu:5011", "http://flask-backend-ap:5012"]
       - SYNC_INTERVAL=5
     networks:
       - network-na
@@ -89,7 +88,7 @@ services:
       mongodb-na-secondary2:
         condition: service_healthy
     healthcheck:
-      test: curl -f http://localhost:5000/health || exit 1
+      test: curl -f http://localhost:5010/health || exit 1
       interval: 10s
       timeout: 5s
       retries: 5
@@ -108,7 +107,6 @@ services:
       - "27020:27017"
     volumes:
       - mongodb-eu-primary-data:/data/db
-      - ./mongodb-init:/docker-entrypoint-initdb.d
     networks:
       - network-eu
       - network-global
@@ -164,13 +162,13 @@ services:
     container_name: flask-backend-eu
     hostname: flask-backend-eu
     ports:
-      - "5001:5001"
+      - "5011:5011"
     environment:
       - REGION=europe
       - MONGODB_URI=mongodb://mongodb-eu-primary:27017,mongodb-eu-secondary1:27017,mongodb-eu-secondary2:27017/meshnetwork?replicaSet=rs-eu
       - MONGODB_REPLICA_SET=rs-eu
-      - FLASK_PORT=5001
-      - REMOTE_REGIONS=["http://flask-backend-na:5000", "http://flask-backend-ap:5002"]
+      - FLASK_PORT=5011
+      - REMOTE_REGIONS=["http://flask-backend-na:5010", "http://flask-backend-ap:5012"]
       - SYNC_INTERVAL=5
     networks:
       - network-eu
@@ -183,7 +181,7 @@ services:
       mongodb-eu-secondary2:
         condition: service_healthy
     healthcheck:
-      test: curl -f http://localhost:5001/health || exit 1
+      test: curl -f http://localhost:5011/health || exit 1
       interval: 10s
       timeout: 5s
       retries: 5
@@ -202,7 +200,6 @@ services:
       - "27023:27017"
     volumes:
       - mongodb-ap-primary-data:/data/db
-      - ./mongodb-init:/docker-entrypoint-initdb.d
     networks:
       - network-ap
       - network-global
@@ -258,13 +255,13 @@ services:
     container_name: flask-backend-ap
     hostname: flask-backend-ap
     ports:
-      - "5002:5002"
+      - "5012:5012"
     environment:
       - REGION=asia_pacific
       - MONGODB_URI=mongodb://mongodb-ap-primary:27017,mongodb-ap-secondary1:27017,mongodb-ap-secondary2:27017/meshnetwork?replicaSet=rs-ap
       - MONGODB_REPLICA_SET=rs-ap
-      - FLASK_PORT=5002
-      - REMOTE_REGIONS=["http://flask-backend-na:5000", "http://flask-backend-eu:5001"]
+      - FLASK_PORT=5012
+      - REMOTE_REGIONS=["http://flask-backend-na:5010", "http://flask-backend-eu:5011"]
       - SYNC_INTERVAL=5
     networks:
       - network-ap
@@ -277,7 +274,7 @@ services:
       mongodb-ap-secondary2:
         condition: service_healthy
     healthcheck:
-      test: curl -f http://localhost:5002/health || exit 1
+      test: curl -f http://localhost:5012/health || exit 1
       interval: 10s
       timeout: 5s
       retries: 5
@@ -296,9 +293,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_NA_BACKEND=http://localhost:5000
-      - REACT_APP_EU_BACKEND=http://localhost:5001
-      - REACT_APP_AP_BACKEND=http://localhost:5002
+      - REACT_APP_NA_BACKEND=http://localhost:5010
+      - REACT_APP_EU_BACKEND=http://localhost:5011
+      - REACT_APP_AP_BACKEND=http://localhost:5012
     networks:
       - network-global
     depends_on:

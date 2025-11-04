@@ -76,22 +76,22 @@ This script:
 ### 4. Access the Application
 
 - **Frontend:** http://localhost:3000
-- **North America Backend:** http://localhost:5000
-- **Europe Backend:** http://localhost:5001
-- **Asia-Pacific Backend:** http://localhost:5002
+- **North America Backend:** http://localhost:5010
+- **Europe Backend:** http://localhost:5011
+- **Asia-Pacific Backend:** http://localhost:5012
 
 ### 5. Verify Everything is Working
 
 Check backend health:
 ```bash
-curl http://localhost:5000/health
-curl http://localhost:5001/health
-curl http://localhost:5002/health
+curl http://localhost:5010/health
+curl http://localhost:5011/health
+curl http://localhost:5012/health
 ```
 
 Check detailed status:
 ```bash
-curl http://localhost:5000/status | jq
+curl http://localhost:5010/status | jq
 ```
 
 ## Usage
@@ -99,7 +99,7 @@ curl http://localhost:5000/status | jq
 ### Creating a Post via API
 
 ```bash
-curl -X POST http://localhost:5000/api/posts \
+curl -X POST http://localhost:5010/api/posts \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user-123",
@@ -117,19 +117,19 @@ curl -X POST http://localhost:5000/api/posts \
 
 ```bash
 # Get all posts in North America
-curl http://localhost:5000/api/posts
+curl http://localhost:5010/api/posts
 
 # Filter by post type
-curl "http://localhost:5000/api/posts?post_type=shelter"
+curl "http://localhost:5010/api/posts?post_type=shelter"
 
 # Limit results
-curl "http://localhost:5000/api/posts?limit=10"
+curl "http://localhost:5010/api/posts?limit=10"
 ```
 
 ### Creating a User
 
 ```bash
-curl -X POST http://localhost:5000/api/users \
+curl -X POST http://localhost:5010/api/users \
   -H "Content-Type: application/json" \
   -d '{
     "name": "John Doe",
@@ -197,14 +197,14 @@ chmod +x scripts/simulate-partition.sh
 
 ```bash
 # Create a post in North America
-curl -X POST http://localhost:5000/api/posts -H "Content-Type: application/json" \
+curl -X POST http://localhost:5010/api/posts -H "Content-Type: application/json" \
   -d '{"user_id":"user1","post_type":"help","message":"Test from NA","location":{"type":"Point","coordinates":[0,0]}}'
 
 # Wait 10 seconds for sync
 sleep 10
 
 # Query from Europe
-curl "http://localhost:5001/api/posts?limit=5"
+curl "http://localhost:5011/api/posts?limit=5"
 
 # The post should appear in Europe's results
 ```
@@ -216,7 +216,7 @@ curl "http://localhost:5001/api/posts?limit=5"
 docker network disconnect network-global flask-backend-ap
 
 # Write to Asia-Pacific (should still work locally)
-curl -X POST http://localhost:5002/api/posts -H "Content-Type: application/json" \
+curl -X POST http://localhost:5012/api/posts -H "Content-Type: application/json" \
   -d '{"user_id":"user2","post_type":"food","message":"Food available","location":{"type":"Point","coordinates":[0,0]}}'
 
 # Reconnect
@@ -226,7 +226,7 @@ docker network connect network-global flask-backend-ap
 sleep 10
 
 # Verify post appears in other regions
-curl http://localhost:5000/api/posts
+curl http://localhost:5010/api/posts
 ```
 
 ## Architecture Diagram
@@ -244,7 +244,7 @@ curl http://localhost:5000/api/posts
 │   Region              │◄────────┤   Region          │   Region        │
 └───────────────────────┘         └───────────────────┴─────────────────┘
 │                                 │                   │
-│  Flask Backend (5000)           │  Flask Backend (5001)  │  Flask Backend (5002)
+│  Flask Backend (5010)           │  Flask Backend (5011)  │  Flask Backend (5012)
 │       │                         │       │           │       │
 │       ├─MongoDB Primary         │       ├─MongoDB Primary  │       ├─MongoDB Primary
 │       ├─MongoDB Secondary       │       ├─MongoDB Secondary│       ├─MongoDB Secondary
@@ -325,9 +325,9 @@ Used for cross-region synchronization:
 | Service | Port |
 |---------|------|
 | React Frontend | 3000 |
-| North America Backend | 5000 |
-| Europe Backend | 5001 |
-| Asia-Pacific Backend | 5002 |
+| North America Backend | 5010 |
+| Europe Backend | 5011 |
+| Asia-Pacific Backend | 5012 |
 | MongoDB NA Primary | 27017 |
 | MongoDB NA Secondary1 | 27018 |
 | MongoDB NA Secondary2 | 27019 |
@@ -384,10 +384,10 @@ docker-compose restart flask-backend-na
 
 ```bash
 # Check backend is running
-curl http://localhost:5000/health
+curl http://localhost:5010/health
 
 # Check CORS is enabled
-curl -H "Origin: http://localhost:3000" http://localhost:5000/health -v
+curl -H "Origin: http://localhost:3000" http://localhost:5010/health -v
 
 # Check frontend logs
 docker-compose logs react-frontend
@@ -429,7 +429,7 @@ pip install -r requirements.txt
 # Set environment variables
 export REGION=north_america
 export MONGODB_URI=mongodb://localhost:27017,localhost:27018,localhost:27019/meshnetwork?replicaSet=rs-na
-export FLASK_PORT=5000
+export FLASK_PORT=5010
 
 # Run
 python app.py
@@ -493,8 +493,8 @@ Returns detailed system status.
     "members": [...]
   },
   "remote_regions": {
-    "http://flask-backend-eu:5001": "reachable",
-    "http://flask-backend-ap:5002": "reachable"
+    "http://flask-backend-eu:5011": "reachable",
+    "http://flask-backend-ap:5012": "reachable"
   }
 }
 ```

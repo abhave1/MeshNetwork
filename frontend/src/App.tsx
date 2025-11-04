@@ -8,9 +8,9 @@ import { Post, RegionEndpoint } from './types';
 import './App.css';
 
 const REGIONS: RegionEndpoint[] = [
-  { name: 'North America', url: 'http://localhost:5000', code: 'north_america' },
-  { name: 'Europe', url: 'http://localhost:5001', code: 'europe' },
-  { name: 'Asia-Pacific', url: 'http://localhost:5002', code: 'asia_pacific' },
+  { name: 'North America', url: 'http://localhost:5010', code: 'north_america' },
+  { name: 'Europe', url: 'http://localhost:5011', code: 'europe' },
+  { name: 'Asia-Pacific', url: 'http://localhost:5012', code: 'asia_pacific' },
 ];
 
 function App() {

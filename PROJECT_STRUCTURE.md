@@ -119,9 +119,9 @@ MeshNetwork/
 - mongodb-ap-primary, mongodb-ap-secondary1, mongodb-ap-secondary2
 
 ### Flask Backend (3 containers)
-- flask-backend-na (port 5000)
-- flask-backend-eu (port 5001)
-- flask-backend-ap (port 5002)
+- flask-backend-na (port 5010)
+- flask-backend-eu (port 5011)
+- flask-backend-ap (port 5012)
 
 ### React Frontend (1 container)
 - react-frontend (port 3000)
@@ -172,9 +172,9 @@ MeshNetwork/
 | Service | Internal Port | External Port |
 |---------|---------------|---------------|
 | React Frontend | 3000 | 3000 |
-| Flask NA | 5000 | 5000 |
-| Flask EU | 5001 | 5001 |
-| Flask AP | 5002 | 5002 |
+| Flask NA | 5010 | 5010 |
+| Flask EU | 5011 | 5011 |
+| Flask AP | 5012 | 5012 |
 | MongoDB NA Primary | 27017 | 27017 |
 | MongoDB NA Secondary1 | 27017 | 27018 |
 | MongoDB NA Secondary2 | 27017 | 27019 |

@@ -11,7 +11,7 @@ class Config:
     """Application configuration class."""
 
     # Flask settings
-    FLASK_PORT = int(os.getenv('FLASK_PORT', 5000))
+    FLASK_PORT = int(os.getenv('FLASK_PORT', 5010))
     DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
     # Region settings

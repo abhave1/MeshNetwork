@@ -42,7 +42,7 @@ class DatabaseService:
             self.client = MongoClient(
                 config.MONGODB_URI,
                 replicaSet=config.MONGODB_REPLICA_SET,
-                readPreference=read_pref,
+                read_preference=read_pref,
                 w=write_concern.document['w'],
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=5000
@@ -62,7 +62,7 @@ class DatabaseService:
 
     def get_collection(self, collection_name: str):
         """Get a MongoDB collection."""
-        if not self.db:
+        if self.db is None:
             raise RuntimeError("Database connection not established")
         return self.db[collection_name]
 

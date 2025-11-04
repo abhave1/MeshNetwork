@@ -61,9 +61,9 @@ mongodb-eu-primary:27017: PRIMARY
 
 Test the backends:
 ```bash
-curl http://localhost:5000/health
-curl http://localhost:5001/health
-curl http://localhost:5002/health
+curl http://localhost:5010/health
+curl http://localhost:5011/health
+curl http://localhost:5012/health
 ```
 
 Each should return:
@@ -75,9 +75,9 @@ Each should return:
 
 Open your browser:
 - **Frontend:** http://localhost:3000
-- **NA Backend:** http://localhost:5000/status
-- **EU Backend:** http://localhost:5001/status
-- **AP Backend:** http://localhost:5002/status
+- **NA Backend:** http://localhost:5010/status
+- **EU Backend:** http://localhost:5011/status
+- **AP Backend:** http://localhost:5012/status
 
 ## First Steps in the UI
 
@@ -97,7 +97,7 @@ Open your browser:
 
 ```bash
 # Create a post in North America
-curl -X POST http://localhost:5000/api/posts \
+curl -X POST http://localhost:5010/api/posts \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user-123",
@@ -107,7 +107,7 @@ curl -X POST http://localhost:5000/api/posts \
   }'
 
 # View posts
-curl http://localhost:5000/api/posts
+curl http://localhost:5010/api/posts
 ```
 
 ### Test 2: Test Automatic Failover
@@ -206,7 +206,7 @@ docker-compose up -d --build flask-backend-na
 You should now have:
 - ✅ 14 Docker containers running
 - ✅ 3 MongoDB replica sets initialized
-- ✅ 3 Flask backends responding at ports 5000, 5001, 5002
+- ✅ 3 Flask backends responding at ports 5010, 5011, 5012
 - ✅ 1 React frontend at port 3000
 - ✅ Cross-region replication working
 - ✅ Automatic failover functional

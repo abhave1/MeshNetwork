@@ -17,7 +17,7 @@ case $REGION in
     MONGODB_SECONDARY1="mongodb-na-secondary1"
     MONGODB_SECONDARY2="mongodb-na-secondary2"
     REGION_NAME="North America"
-    PORT="5000"
+    PORT="5010"
     ;;
   eu)
     BACKEND="flask-backend-eu"
@@ -25,7 +25,7 @@ case $REGION in
     MONGODB_SECONDARY1="mongodb-eu-secondary1"
     MONGODB_SECONDARY2="mongodb-eu-secondary2"
     REGION_NAME="Europe"
-    PORT="5001"
+    PORT="5011"
     ;;
   ap)
     BACKEND="flask-backend-ap"
@@ -33,7 +33,7 @@ case $REGION in
     MONGODB_SECONDARY1="mongodb-ap-secondary1"
     MONGODB_SECONDARY2="mongodb-ap-secondary2"
     REGION_NAME="Asia-Pacific"
-    PORT="5002"
+    PORT="5012"
     ;;
   *)
     echo "Invalid region: $REGION"
@@ -89,15 +89,15 @@ echo ""
 echo "Step 5: Verifying isolation..."
 echo "Checking if backend can reach other regions..."
 
-docker exec $BACKEND curl -s -m 2 http://flask-backend-na:5000/health 2>&1 | grep -q "healthy" && \
+docker exec $BACKEND curl -s -m 2 http://flask-backend-na:5010/health 2>&1 | grep -q "healthy" && \
   echo "✗ Can still reach North America (unexpected)" || \
   echo "✓ Cannot reach North America (expected)"
 
-docker exec $BACKEND curl -s -m 2 http://flask-backend-eu:5001/health 2>&1 | grep -q "healthy" && \
+docker exec $BACKEND curl -s -m 2 http://flask-backend-eu:5011/health 2>&1 | grep -q "healthy" && \
   echo "✗ Can still reach Europe (unexpected)" || \
   echo "✓ Cannot reach Europe (expected)"
 
-docker exec $BACKEND curl -s -m 2 http://flask-backend-ap:5002/health 2>&1 | grep -q "healthy" && \
+docker exec $BACKEND curl -s -m 2 http://flask-backend-ap:5012/health 2>&1 | grep -q "healthy" && \
   echo "✗ Can still reach Asia-Pacific (unexpected)" || \
   echo "✓ Cannot reach Asia-Pacific (expected)"
 
@@ -121,15 +121,15 @@ sleep 10
 echo ""
 echo "Step 8: Verifying connectivity restored..."
 
-docker exec $BACKEND curl -s -m 5 http://flask-backend-na:5000/health 2>&1 | grep -q "healthy" && \
+docker exec $BACKEND curl -s -m 5 http://flask-backend-na:5010/health 2>&1 | grep -q "healthy" && \
   echo "✓ Can reach North America" || \
   echo "✗ Cannot reach North America"
 
-docker exec $BACKEND curl -s -m 5 http://flask-backend-eu:5001/health 2>&1 | grep -q "healthy" && \
+docker exec $BACKEND curl -s -m 5 http://flask-backend-eu:5011/health 2>&1 | grep -q "healthy" && \
   echo "✓ Can reach Europe" || \
   echo "✗ Cannot reach Europe"
 
-docker exec $BACKEND curl -s -m 5 http://flask-backend-ap:5002/health 2>&1 | grep -q "healthy" && \
+docker exec $BACKEND curl -s -m 5 http://flask-backend-ap:5012/health 2>&1 | grep -q "healthy" && \
   echo "✓ Can reach Asia-Pacific" || \
   echo "✗ Cannot reach Asia-Pacific"
 

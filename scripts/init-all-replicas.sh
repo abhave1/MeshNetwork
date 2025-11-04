@@ -25,8 +25,9 @@ rs.initiate({
 });
 "
 
-# Wait for replica set to initialize
-sleep 5
+# Wait for replica set to initialize and elect primary
+echo "Waiting for primary election..."
+sleep 10
 
 # Create collections and indexes for North America
 echo "Creating collections and indexes for North America..."
@@ -65,7 +66,9 @@ rs.initiate({
 });
 "
 
-sleep 5
+# Wait for replica set to initialize and elect primary
+echo "Waiting for primary election..."
+sleep 10
 
 # Create collections and indexes for Europe
 echo "Creating collections and indexes for Europe..."
@@ -104,7 +107,9 @@ rs.initiate({
 });
 "
 
-sleep 5
+# Wait for replica set to initialize and elect primary
+echo "Waiting for primary election..."
+sleep 10
 
 # Create collections and indexes for Asia-Pacific
 echo "Creating collections and indexes for Asia-Pacific..."

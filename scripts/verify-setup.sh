@@ -81,9 +81,9 @@ echo ""
 echo "Step 3: Checking Flask Backends"
 echo "--------------------------------"
 
-check_service "North America Backend" "http://localhost:5000/health"
-check_service "Europe Backend" "http://localhost:5001/health"
-check_service "Asia-Pacific Backend" "http://localhost:5002/health"
+check_service "North America Backend" "http://localhost:5010/health"
+check_service "Europe Backend" "http://localhost:5011/health"
+check_service "Asia-Pacific Backend" "http://localhost:5012/health"
 
 echo ""
 echo "Step 4: Checking Frontend"
@@ -102,8 +102,8 @@ echo "Step 5: Checking Cross-Region Connectivity"
 echo "-------------------------------------------"
 
 # Test if backends can reach each other
-NA_TO_EU=$(docker exec flask-backend-na curl -s -m 3 http://flask-backend-eu:5001/health 2>&1 | grep -c "healthy")
-NA_TO_AP=$(docker exec flask-backend-na curl -s -m 3 http://flask-backend-ap:5002/health 2>&1 | grep -c "healthy")
+NA_TO_EU=$(docker exec flask-backend-na curl -s -m 3 http://flask-backend-eu:5011/health 2>&1 | grep -c "healthy")
+NA_TO_AP=$(docker exec flask-backend-na curl -s -m 3 http://flask-backend-ap:5012/health 2>&1 | grep -c "healthy")
 
 if [ "$NA_TO_EU" -eq 1 ]; then
     echo -e "${GREEN}✓${NC} North America can reach Europe"
@@ -142,7 +142,7 @@ echo "Step 7: Testing CRUD Operations"
 echo "--------------------------------"
 
 # Test creating a post
-POST_RESULT=$(curl -s -X POST http://localhost:5000/api/posts \
+POST_RESULT=$(curl -s -X POST http://localhost:5010/api/posts \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "verify-test-user",
@@ -156,7 +156,7 @@ if echo "$POST_RESULT" | grep -q "post_id"; then
     ((SUCCESS++))
 
     # Test reading posts
-    GET_RESULT=$(curl -s http://localhost:5000/api/posts 2>&1)
+    GET_RESULT=$(curl -s http://localhost:5010/api/posts 2>&1)
     if echo "$GET_RESULT" | grep -q "posts"; then
         echo -e "${GREEN}✓${NC} Can read posts"
         ((SUCCESS++))
