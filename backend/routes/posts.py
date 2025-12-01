@@ -8,7 +8,8 @@ import logging
 
 from config import config
 from services.database import db_service
-from services.replication_engine import replication_engine
+from services.replication_engine import replication_engine, _serialize_for_json
+from services.query_router import query_router
 from models.post import Post
 
 # Configure logging
@@ -26,46 +27,122 @@ def get_posts():
     Query parameters:
         - post_type: Filter by post type
         - region: Filter by region
+        - global: If 'true', query all regions (scatter-gather)
         - limit: Maximum number of results (default: 100)
     """
     try:
         # Get query parameters
         post_type = request.args.get('post_type')
         region = request.args.get('region')
+        global_query = request.args.get('global', 'false').lower() == 'true'
         limit = int(request.args.get('limit', 100))
 
-        # Build query
-        query = {}
-        if post_type:
-            if not config.validate_post_type(post_type):
-                return jsonify({'error': f'Invalid post type: {post_type}'}), 400
-            query['post_type'] = post_type
+        # Global query: scatter-gather across all regions
+        if global_query:
+            logger.info("Executing global query across all regions")
 
-        if region:
-            if not config.validate_region(region):
-                return jsonify({'error': f'Invalid region: {region}'}), 400
-            query['region'] = region
+            # Build query params for remote regions
+            # NOTE: Don't filter by region - we want all posts from remote regions
+            # Each remote region will query its entire local database
+            params = {'region': 'all'}  # Special value to skip region filtering
+            if post_type:
+                params['post_type'] = post_type
+            if limit:
+                params['limit'] = str(limit)
+
+            # Query local region
+            local_query = {}
+            if post_type:
+                if not config.validate_post_type(post_type):
+                    return jsonify({'error': f'Invalid post type: {post_type}'}), 400
+                local_query['post_type'] = post_type
+
+            local_posts = db_service.find_many(
+                'posts',
+                local_query,
+                sort=[('timestamp', -1)],
+                limit=limit
+            )
+
+            # Serialize local posts
+            local_posts_serialized = [_serialize_for_json(post) for post in local_posts]
+
+            # Scatter-gather from remote regions
+            remote_responses = query_router.scatter_gather('/api/posts', params)
+            logger.info(f"Scatter-gather returned {len(remote_responses)} responses")
+            logger.info(f"Response types: {[type(r).__name__ for r in remote_responses]}")
+
+            # Extract posts from remote responses
+            remote_posts = []
+            for response in remote_responses:
+                if isinstance(response, dict) and 'posts' in response:
+                    logger.info(f"Extracting {len(response['posts'])} posts from dict response")
+                    remote_posts.extend(response['posts'])
+                elif isinstance(response, list):
+                    logger.info(f"Extracting {len(response)} posts from list response")
+                    remote_posts.extend(response)
+                else:
+                    logger.warning(f"Unexpected response type: {type(response)}, content: {response}")
+
+            logger.info(f"Total remote posts extracted: {len(remote_posts)}")
+
+            # Combine local and remote results
+            all_posts = local_posts_serialized + remote_posts
+
+            # Merge and sort results
+            sorted_posts = query_router.merge_results(all_posts, sort_by='timestamp', reverse=True)
+
+            # Apply limit to combined results
+            final_posts = sorted_posts[:limit]
+
+            return jsonify({
+                'posts': final_posts,
+                'count': len(final_posts),
+                'region': 'global',
+                'sources': {
+                    'local': len(local_posts_serialized),
+                    'remote': len(remote_posts)
+                }
+            }), 200
+
+        # Regional query: query specific region or local
         else:
-            # Default to local region
-            query['region'] = config.REGION
+            # Build query
+            query = {}
+            if post_type:
+                if not config.validate_post_type(post_type):
+                    return jsonify({'error': f'Invalid post type: {post_type}'}), 400
+                query['post_type'] = post_type
 
-        # Execute query
-        posts = db_service.find_many(
-            'posts',
-            query,
-            sort=[('timestamp', -1)],
-            limit=limit
-        )
+            if region:
+                # Special case: region='all' means query all posts (no region filter)
+                if region == 'all':
+                    pass  # Don't add region filter
+                elif not config.validate_region(region):
+                    return jsonify({'error': f'Invalid region: {region}'}), 400
+                else:
+                    query['region'] = region
+            else:
+                # Default to local region
+                query['region'] = config.REGION
 
-        # Convert ObjectId to string for JSON serialization
-        for post in posts:
-            post['_id'] = str(post['_id'])
+            # Execute query
+            posts = db_service.find_many(
+                'posts',
+                query,
+                sort=[('timestamp', -1)],
+                limit=limit
+            )
 
-        return jsonify({
-            'posts': posts,
-            'count': len(posts),
-            'region': config.REGION
-        }), 200
+            # Convert ObjectId to string for JSON serialization
+            for post in posts:
+                post['_id'] = str(post['_id'])
+
+            return jsonify({
+                'posts': posts,
+                'count': len(posts),
+                'region': config.REGION
+            }), 200
 
     except Exception as e:
         logger.error(f"Error getting posts: {e}")

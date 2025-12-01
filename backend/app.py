@@ -78,6 +78,8 @@ def create_app():
     def get_changes():
         """Provide recent changes for other regions to sync."""
         from flask import request
+        from services.replication_engine import _serialize_for_json
+        from datetime import datetime
 
         try:
             since = request.args.get('since')
@@ -85,7 +87,13 @@ def create_app():
             # Build query
             query = {'region_origin': config.REGION}
             if since:
-                query['timestamp'] = {'$gt': since}
+                # Parse ISO format timestamp string to datetime
+                try:
+                    since_datetime = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                    query['timestamp'] = {'$gt': since_datetime}
+                except ValueError:
+                    logger.warning(f"Invalid since timestamp format: {since}")
+                    # If invalid format, ignore the since parameter
 
             # Get recent operations
             operations = db_service.find_many(
@@ -95,13 +103,12 @@ def create_app():
                 limit=100
             )
 
-            # Convert ObjectId to string
-            for op in operations:
-                op['_id'] = str(op['_id'])
+            # Convert MongoDB objects to JSON-serializable format
+            serializable_ops = [_serialize_for_json(op) for op in operations]
 
             return jsonify({
-                'operations': operations,
-                'count': len(operations)
+                'operations': serializable_ops,
+                'count': len(serializable_ops)
             }), 200
 
         except Exception as e:

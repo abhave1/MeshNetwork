@@ -159,15 +159,28 @@ class DatabaseService:
         self,
         collection_name: str,
         query: Dict[str, Any],
-        update: Dict[str, Any]
+        update: Dict[str, Any],
+        use_operators: bool = False
     ) -> bool:
         """
         Update a single document.
-        Returns True if document was modified.
+
+        Args:
+            collection_name: Name of the collection
+            query: Query to find the document
+            update: Update data or update operators
+            use_operators: If True, update contains operators like $set, $addToSet etc.
+                          If False, wraps update in {'$set': update}
+
+        Returns:
+            True if document was modified.
         """
         try:
             collection = self.get_collection(collection_name)
-            result = collection.update_one(query, {'$set': update})
+            if use_operators:
+                result = collection.update_one(query, update)
+            else:
+                result = collection.update_one(query, {'$set': update})
             logger.info(f"Updated document in {collection_name}: modified={result.modified_count}")
             return result.modified_count > 0
         except Exception as e:

@@ -8,6 +8,7 @@ import logging
 from config import config
 from services.database import db_service
 from services.query_router import query_router
+from services.replication_engine import replication_engine
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +44,12 @@ def detailed_status():
         # Check connectivity to remote regions
         remote_health = query_router.check_network_health()
 
+        # Get island mode status
+        island_status = replication_engine.get_island_mode_status()
+
+        # Get conflict metrics
+        conflict_metrics = replication_engine.get_conflict_metrics()
+
         return jsonify({
             'status': 'healthy' if db_health.get('status') == 'healthy' else 'degraded',
             'region': {
@@ -50,10 +57,18 @@ def detailed_status():
                 'display_name': config.get_region_display_name()
             },
             'database': db_health,
+            'island_mode': {
+                'is_island': island_status['is_island'],
+                'connected_regions': island_status['connected_regions'],
+                'total_regions': island_status['total_regions'],
+                'status': 'isolated' if island_status['is_island'] else 'connected'
+            },
             'remote_regions': {
                 url: 'reachable' if reachable else 'unreachable'
                 for url, reachable in remote_health.items()
             },
+            'replication_status': island_status['region_details'],
+            'conflict_metrics': conflict_metrics,
             'configuration': {
                 'sync_interval': config.SYNC_INTERVAL,
                 'request_timeout': config.REQUEST_TIMEOUT

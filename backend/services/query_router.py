@@ -116,8 +116,16 @@ class QueryRouter:
                 try:
                     result = future.result()
                     if result:
-                        all_results.extend(result)
-                        logger.info(f"Retrieved {len(result)} results from {region_url}")
+                        # If result is a dict (full response), append it as-is
+                        # If result is a list, extend with its items
+                        if isinstance(result, dict):
+                            all_results.append(result)
+                            logger.info(f"Retrieved 1 response from {region_url}")
+                        elif isinstance(result, list):
+                            all_results.extend(result)
+                            logger.info(f"Retrieved {len(result)} results from {region_url}")
+                        else:
+                            logger.warning(f"Unexpected result type from {region_url}: {type(result)}")
                 except Exception as e:
                     logger.error(f"Error querying {region_url}: {e}")
 

@@ -41,7 +41,8 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.getPosts({ limit: 50 });
+      // Use region='all' to show posts from all regions (cross-region sync)
+      const response = await api.getPosts({ limit: 50, region: 'all' });
       setPosts(response.posts || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load posts');
