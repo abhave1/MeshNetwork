@@ -33,6 +33,31 @@ def _serialize_for_json(obj: Any) -> Any:
     return obj
 
 
+def _deserialize_timestamps(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert ISO timestamp strings back to datetime objects.
+    This ensures consistent storage format in MongoDB.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    # Create a copy to avoid modifying the original
+    result = data.copy()
+
+    # Convert common timestamp fields
+    timestamp_fields = ['timestamp', 'last_modified', 'created_at', 'updated_at']
+
+    for field in timestamp_fields:
+        if field in result and isinstance(result[field], str):
+            try:
+                # Parse ISO format string to datetime
+                result[field] = datetime.fromisoformat(result[field].replace('Z', '+00:00'))
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Failed to parse timestamp field '{field}': {e}")
+
+    return result
+
+
 class ReplicationEngine:
     """Manages cross-region data replication."""
 
@@ -276,6 +301,10 @@ class ReplicationEngine:
                 document_id = op.get('document_id')
                 data = op.get('data')
 
+                # Deserialize timestamp strings back to datetime objects
+                # This ensures consistent storage format in MongoDB
+                data = _deserialize_timestamps(data)
+
                 if operation_type == 'insert':
                     # Check if document already exists
                     existing = db_service.find_one(collection, {f"{collection[:-1]}_id": document_id})
@@ -362,9 +391,15 @@ class ReplicationEngine:
             remote_time = remote_data.get('last_modified') or remote_data.get('timestamp')
             local_time = local_data.get('last_modified') or local_data.get('timestamp')
 
+            # Convert timestamps to datetime objects for comparison
+            if remote_time and isinstance(remote_time, str):
+                remote_time = datetime.fromisoformat(remote_time.replace('Z', '+00:00'))
+            if local_time and isinstance(local_time, str):
+                local_time = datetime.fromisoformat(local_time.replace('Z', '+00:00'))
+
             if remote_time and local_time:
                 if remote_time > local_time:
-                    # Remote data is newer, update local
+                    # Remote data is newer, update local with deserialized timestamps
                     db_service.update_one(
                         collection,
                         {f"{collection[:-1]}_id": document_id},
@@ -373,7 +408,32 @@ class ReplicationEngine:
                     logger.info(f"Resolved conflict for {collection}/{document_id} - remote wins")
                     self._record_conflict(collection, document_id, 'remote_wins')
                 else:
-                    logger.info(f"Resolved conflict for {collection}/{document_id} - local wins")
+                    # Local data is newer, but check if local has string timestamps that need fixing
+                    # This handles the case where old data was stored as ISO strings
+                    local_has_string_timestamps = (
+                        isinstance(local_data.get('timestamp'), str) or
+                        isinstance(local_data.get('last_modified'), str)
+                    )
+
+                    if local_has_string_timestamps:
+                        # Update local data to have proper datetime objects
+                        update_fields = {}
+                        if isinstance(local_data.get('timestamp'), str):
+                            update_fields['timestamp'] = remote_time if isinstance(remote_time, datetime) else datetime.fromisoformat(str(remote_time).replace('Z', '+00:00'))
+                        if isinstance(local_data.get('last_modified'), str):
+                            local_modified = local_data.get('last_modified')
+                            update_fields['last_modified'] = datetime.fromisoformat(local_modified.replace('Z', '+00:00'))
+
+                        if update_fields:
+                            db_service.update_one(
+                                collection,
+                                {f"{collection[:-1]}_id": document_id},
+                                update_fields
+                            )
+                            logger.info(f"Fixed string timestamps for {collection}/{document_id} - local wins (timestamps corrected)")
+                    else:
+                        logger.info(f"Resolved conflict for {collection}/{document_id} - local wins")
+
                     self._record_conflict(collection, document_id, 'local_wins')
             else:
                 logger.warning(f"Could not resolve conflict for {collection}/{document_id} - missing timestamps")
