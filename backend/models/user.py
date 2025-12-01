@@ -2,7 +2,7 @@
 User model for MeshNetwork application.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import uuid
 
@@ -28,7 +28,7 @@ class User:
         self.location = location or {"type": "Point", "coordinates": [0.0, 0.0]}
         self.verified = verified
         self.reputation = reputation
-        self.created_at = created_at or datetime.utcnow()
+        self.created_at = created_at or datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert user to dictionary for MongoDB storage."""

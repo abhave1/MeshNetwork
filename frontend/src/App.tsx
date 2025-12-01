@@ -116,7 +116,20 @@ function App() {
 
   const formatTimestamp = (timestamp: string): string => {
     const date = new Date(timestamp);
-    return date.toLocaleString();
+
+    // Always display in UTC
+    const utcString = date.toLocaleString('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+
+    return `${utcString} UTC`;
   };
 
   return (
@@ -141,6 +154,10 @@ function App() {
             </option>
           ))}
         </select>
+
+        <span style={{ marginLeft: '20px', color: '#666' }}>
+          All times displayed in UTC
+        </span>
       </div>
 
       {/* System Status */}

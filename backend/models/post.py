@@ -2,7 +2,7 @@
 Post model for MeshNetwork application.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import uuid
 
@@ -29,8 +29,8 @@ class Post:
         self.location = location or {"type": "Point", "coordinates": [0.0, 0.0]}
         self.region = region
         self.capacity = capacity
-        self.timestamp = timestamp or datetime.utcnow()
-        self.last_modified = last_modified or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(timezone.utc)
+        self.last_modified = last_modified or datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert post to dictionary for MongoDB storage."""

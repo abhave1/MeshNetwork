@@ -3,7 +3,7 @@ Posts API endpoints.
 """
 
 from flask import Blueprint, request, jsonify
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from config import config
@@ -18,6 +18,15 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint
 posts_bp = Blueprint('posts', __name__, url_prefix='/api')
+
+
+def _add_timezone_metadata(response_data: dict) -> dict:
+    """Add timezone metadata to API responses."""
+    response_data['_metadata'] = {
+        'timezone': 'UTC',
+        'timezone_offset': '+00:00'
+    }
+    return response_data
 
 
 @posts_bp.route('/posts', methods=['GET'])
@@ -95,7 +104,7 @@ def get_posts():
             # Apply limit to combined results
             final_posts = sorted_posts[:limit]
 
-            return jsonify({
+            response = {
                 'posts': final_posts,
                 'count': len(final_posts),
                 'region': 'global',
@@ -103,7 +112,8 @@ def get_posts():
                     'local': len(local_posts_serialized),
                     'remote': len(remote_posts)
                 }
-            }), 200
+            }
+            return jsonify(_add_timezone_metadata(response)), 200
 
         # Regional query: query specific region or local
         else:
@@ -138,11 +148,12 @@ def get_posts():
             for post in posts:
                 post['_id'] = str(post['_id'])
 
-            return jsonify({
+            response = {
                 'posts': posts,
                 'count': len(posts),
                 'region': config.REGION
-            }), 200
+            }
+            return jsonify(_add_timezone_metadata(response)), 200
 
     except Exception as e:
         logger.error(f"Error getting posts: {e}")
@@ -246,7 +257,7 @@ def update_post(post_id):
                 update_data[field] = data[field]
 
         # Add last_modified timestamp
-        update_data['last_modified'] = datetime.utcnow()
+        update_data['last_modified'] = datetime.now(timezone.utc)
 
         # Update in database
         db_service.update_one('posts', {'post_id': post_id}, update_data)

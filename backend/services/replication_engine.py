@@ -8,7 +8,7 @@ import time
 import requests
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from bson import ObjectId
 
@@ -135,7 +135,7 @@ class ReplicationEngine:
             region_url: URL of the region
             is_connected: Whether connection was successful
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if region_url not in self.region_status:
             self.region_status[region_url] = {
@@ -251,7 +251,7 @@ class ReplicationEngine:
                     logger.info(f"Successfully pulled {len(operations)} operations from {region_url}")
 
                     # Update last sync time to current time
-                    self._update_last_sync_time(region_url, datetime.utcnow())
+                    self._update_last_sync_time(region_url, datetime.now(timezone.utc))
 
                 # Update connectivity status
                 self._update_region_status(region_url, True)
@@ -331,7 +331,7 @@ class ReplicationEngine:
             'collection': collection,
             'document_id': document_id,
             'outcome': outcome,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
         self.conflict_metrics['recent_conflicts'].append(recent)
         if len(self.conflict_metrics['recent_conflicts']) > 10:
@@ -431,7 +431,7 @@ class ReplicationEngine:
                 'local_region': self.local_region,
                 'remote_region': region_url,
                 'last_sync_time': sync_time,
-                'last_updated': datetime.utcnow()
+                'last_updated': datetime.now(timezone.utc)
             }
 
             # Check if metadata exists
@@ -453,7 +453,7 @@ class ReplicationEngine:
                     },
                     {
                         'last_sync_time': sync_time,
-                        'last_updated': datetime.utcnow()
+                        'last_updated': datetime.now(timezone.utc)
                     }
                 )
             else:
@@ -473,7 +473,7 @@ class ReplicationEngine:
             max_age_hours: Maximum age in hours for operations to keep
         """
         try:
-            cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
 
             # Find operations that are:
             # 1. Older than cutoff_time
@@ -524,7 +524,7 @@ class ReplicationEngine:
                 'collection': collection,
                 'document_id': document_id,
                 'data': data,
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'synced_to': [],
                 'region_origin': self.local_region
             }
