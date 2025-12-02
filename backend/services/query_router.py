@@ -84,19 +84,32 @@ class QueryRouter:
     def scatter_gather(
         self,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        params: Optional[Dict[str, Any]] = None,
+        timeout_per_region: Optional[int] = None,
+        min_responses: int = 1
+    ) -> Dict[str, Any]:
         """
         Execute a query across all regions in parallel and gather results.
 
         Args:
             endpoint: API endpoint to query
             params: Query parameters
+            timeout_per_region: Timeout for each region query (uses config default if None)
+            min_responses: Minimum number of successful responses required
 
         Returns:
-            List of results from all reachable regions
+            Dictionary containing:
+                - results: List of results from all reachable regions
+                - metadata: Query execution metadata (timing, success rate, etc.)
         """
+        import time
+        start_time = time.time()
+
         all_results = []
+        successful_regions = []
+        failed_regions = []
+
+        timeout = timeout_per_region or self.timeout
 
         # Use ThreadPoolExecutor for parallel requests
         with ThreadPoolExecutor(max_workers=len(self.remote_regions)) as executor:
@@ -107,15 +120,17 @@ class QueryRouter:
                     self._query_region,
                     region_url,
                     endpoint,
-                    params
+                    params,
+                    timeout
                 )
                 futures[future] = region_url
 
-            for future in as_completed(futures):
+            for future in as_completed(futures, timeout=timeout * 2):
                 region_url = futures[future]
                 try:
-                    result = future.result()
+                    result = future.result(timeout=timeout)
                     if result:
+                        successful_regions.append(region_url)
                         # If result is a dict (full response), append it as-is
                         # If result is a list, extend with its items
                         if isinstance(result, dict):
@@ -126,16 +141,48 @@ class QueryRouter:
                             logger.info(f"Retrieved {len(result)} results from {region_url}")
                         else:
                             logger.warning(f"Unexpected result type from {region_url}: {type(result)}")
+                    else:
+                        failed_regions.append(region_url)
+                        logger.warning(f"No results from {region_url}")
                 except Exception as e:
+                    failed_regions.append(region_url)
                     logger.error(f"Error querying {region_url}: {e}")
 
-        return all_results
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+
+        # Check if we met minimum response threshold
+        if len(successful_regions) < min_responses:
+            logger.warning(
+                f"Only {len(successful_regions)} regions responded "
+                f"(minimum required: {min_responses})"
+            )
+
+        metadata = {
+            'total_regions_queried': len(self.remote_regions),
+            'successful_regions': successful_regions,
+            'failed_regions': failed_regions,
+            'success_rate': len(successful_regions) / len(self.remote_regions) if self.remote_regions else 0,
+            'query_time_seconds': round(elapsed_time, 3),
+            'timeout_per_region': timeout
+        }
+
+        logger.info(
+            f"Scatter-gather completed: {len(successful_regions)}/{len(self.remote_regions)} "
+            f"regions responded in {elapsed_time:.3f}s"
+        )
+
+        return {
+            'results': all_results,
+            'metadata': metadata
+        }
 
     def _query_region(
         self,
         region_url: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None
+        params: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """
         Query a specific region.
@@ -144,13 +191,15 @@ class QueryRouter:
             region_url: Base URL of the region
             endpoint: API endpoint
             params: Query parameters
+            timeout: Request timeout in seconds
 
         Returns:
             Results from the region, or None if unreachable
         """
         try:
             url = f"{region_url}{endpoint}"
-            response = requests.get(url, params=params, timeout=self.timeout)
+            timeout_val = timeout or self.timeout
+            response = requests.get(url, params=params, timeout=timeout_val)
 
             if response.status_code == 200:
                 return response.json()
@@ -158,6 +207,9 @@ class QueryRouter:
                 logger.warning(f"Region {region_url} returned status {response.status_code}")
                 return None
 
+        except requests.Timeout:
+            logger.error(f"Timeout querying region {region_url} (timeout: {timeout_val}s)")
+            return None
         except Exception as e:
             logger.error(f"Error querying region {region_url}: {e}")
             return None

@@ -77,9 +77,13 @@ def get_posts():
             local_posts_serialized = [_serialize_for_json(post) for post in local_posts]
 
             # Scatter-gather from remote regions
-            remote_responses = query_router.scatter_gather('/api/posts', params)
+            scatter_result = query_router.scatter_gather('/api/posts', params, min_responses=0)
+            remote_responses = scatter_result['results']
+            query_metadata = scatter_result['metadata']
+
             logger.info(f"Scatter-gather returned {len(remote_responses)} responses")
             logger.info(f"Response types: {[type(r).__name__ for r in remote_responses]}")
+            logger.info(f"Query metadata: {query_metadata}")
 
             # Extract posts from remote responses
             remote_posts = []
@@ -111,7 +115,8 @@ def get_posts():
                 'sources': {
                     'local': len(local_posts_serialized),
                     'remote': len(remote_posts)
-                }
+                },
+                'query_metadata': query_metadata
             }
             return jsonify(_add_timezone_metadata(response)), 200
 

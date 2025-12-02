@@ -15,11 +15,18 @@ import sys
 
 
 # MongoDB connection URIs for each region
-# Using directConnection=true to connect directly to each port without replica set discovery
+# Use directConnection for simplicity, but write to the same database the backends use
 MONGO_URIS = {
     'NA': 'mongodb://localhost:27017/?directConnection=true',
     'EU': 'mongodb://localhost:27020/?directConnection=true',
     'AP': 'mongodb://localhost:27023/?directConnection=true'
+}
+
+# Different timestamp ranges for each region (days ago)
+REGION_TIME_RANGES = {
+    'NA': (0, 10),    # Recent posts (0-10 days ago)
+    'EU': (5, 15),    # Mix of recent and older (5-15 days ago)
+    'AP': (10, 20)    # Older posts (10-20 days ago)
 }
 
 DATABASE_NAME = 'meshnetwork'
@@ -142,9 +149,21 @@ def generate_user(faker: Faker, region_code: str) -> Dict[str, Any]:
 
 
 def generate_post(user_id: str, region_code: str) -> Dict[str, Any]:
-    """Generate a single post document."""
+    """Generate a single post document with region-specific timestamps."""
     post_type = random.choice(POST_TYPES)
     message = random.choice(POST_MESSAGES[post_type])
+
+    # Use region-specific time range
+    time_range = REGION_TIME_RANGES.get(region_code, (0, 30))
+    days_ago = random.randint(*time_range)
+    hours_ago = random.randint(0, 23)
+    minutes_ago = random.randint(0, 59)
+
+    post_time = datetime.now(timezone.utc) - timedelta(
+        days=days_ago,
+        hours=hours_ago,
+        minutes=minutes_ago
+    )
 
     post = {
         'post_id': str(uuid.uuid4()),
@@ -153,8 +172,8 @@ def generate_post(user_id: str, region_code: str) -> Dict[str, Any]:
         'message': message,
         'location': get_random_location(region_code),
         'region': REGIONS[region_code]['name'],
-        'timestamp': datetime.now(timezone.utc) - timedelta(days=random.randint(0, 30)),
-        'last_modified': datetime.now(timezone.utc) - timedelta(days=random.randint(0, 30))
+        'timestamp': post_time,
+        'last_modified': post_time
     }
 
     # Add capacity only for shelter posts
@@ -234,11 +253,6 @@ def generate_and_insert_data():
 
     print()
 
-    # Initialize Faker
-    faker = Faker()
-    Faker.seed(42)  # For reproducibility
-    random.seed(42)
-
     # Distribute users evenly across regions
     users_per_region = NUM_USERS // 3
     region_codes = list(REGIONS.keys())
@@ -255,6 +269,12 @@ def generate_and_insert_data():
         db = connections[region_code]['db']
         user_batch = []
 
+        # Initialize Faker with different seed per region
+        faker = Faker()
+        region_seed = 42 + ord(region_code[0])  # Different seed per region
+        Faker.seed(region_seed)
+        random.seed(region_seed)
+
         # Determine number of users for this region (handle remainder)
         if region_code == region_codes[-1]:
             num_users_for_region = NUM_USERS - total_users_inserted
@@ -262,6 +282,7 @@ def generate_and_insert_data():
             num_users_for_region = users_per_region
 
         print(f"\n{region_code} region: Generating {num_users_for_region:,} users...")
+        print(f"  Timestamp range: {REGION_TIME_RANGES[region_code][0]}-{REGION_TIME_RANGES[region_code][1]} days ago")
 
         for i in range(num_users_for_region):
             user = generate_user(faker, region_code)

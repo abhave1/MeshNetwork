@@ -30,6 +30,32 @@ function App() {
     latitude: 37.7749,
   });
 
+  // Mark safe form state
+  const [showMarkSafeForm, setShowMarkSafeForm] = useState(false);
+  const [safeUserId, setSafeUserId] = useState('');
+
+  // View nearby form state
+  const [showNearbyForm, setShowNearbyForm] = useState(false);
+  const [nearbyLocation, setNearbyLocation] = useState({
+    latitude: 37.7749,
+    longitude: -122.4194,
+    radius: 10000,
+  });
+  const [nearbyPosts, setNearbyPosts] = useState<Post[]>([]);
+  const [showingNearby, setShowingNearby] = useState(false);
+
+  // Live-updating island mode timer
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Update current time every second for live timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000); // Update every second
+
+    return () => clearInterval(timer);
+  }, []);
+
   // Load posts when region changes
   useEffect(() => {
     api.setBaseUrl(selectedRegion.url);
@@ -111,6 +137,46 @@ function App() {
     }
   };
 
+  const handleMarkSafe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    try {
+      await api.markUserSafe(safeUserId);
+      setSafeUserId('');
+      setShowMarkSafeForm(false);
+
+      // Reload posts to show the new safety status
+      loadPosts();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to mark user as safe');
+      console.error('Error marking user safe:', err);
+    }
+  };
+
+  const handleViewNearby = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      const response = await api.getHelpRequests({
+        latitude: nearbyLocation.latitude,
+        longitude: nearbyLocation.longitude,
+        radius: nearbyLocation.radius,
+      });
+
+      setNearbyPosts(response.help_requests || []);
+      setShowingNearby(true);
+      setShowNearbyForm(false);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to load nearby updates');
+      console.error('Error loading nearby updates:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getPostTypeColor = (type: string): string => {
     const colors: Record<string, string> = {
       shelter: '#2196F3',
@@ -139,6 +205,30 @@ function App() {
     });
 
     return `${utcString} UTC`;
+  };
+
+  const formatDuration = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${secs}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    } else {
+      return `${secs}s`;
+    }
+  };
+
+  const calculateIslandDuration = (): number | null => {
+    if (!regionHealth?.island_mode?.isolation_start) {
+      return null;
+    }
+
+    const startTime = new Date(regionHealth.island_mode.isolation_start);
+    const elapsed = (currentTime.getTime() - startTime.getTime()) / 1000; // Convert to seconds
+    return Math.max(0, elapsed);
   };
 
   return (
@@ -179,6 +269,11 @@ function App() {
               This region is isolated from other regions.
               {' '}Local operations continue normally, but cross-region sync is paused.
             </p>
+            {calculateIslandDuration() !== null && (
+              <p style={{ marginTop: '8px', fontWeight: 600 }}>
+                Isolated for: {formatDuration(calculateIslandDuration()!)}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -220,6 +315,17 @@ function App() {
         <button onClick={() => setShowPostForm(!showPostForm)}>
           {showPostForm ? 'Hide Form' : 'Create Post'}
         </button>
+        <button onClick={() => setShowMarkSafeForm(!showMarkSafeForm)}>
+          {showMarkSafeForm ? 'Hide' : '✓ Mark Safe'}
+        </button>
+        <button onClick={() => setShowNearbyForm(!showNearbyForm)}>
+          {showNearbyForm ? 'Hide' : '📍 View Nearby'}
+        </button>
+        {showingNearby && (
+          <button onClick={() => { setShowingNearby(false); loadPosts(); }}>
+            Show All Posts
+          </button>
+        )}
       </div>
 
       {/* Post Form */}
@@ -289,17 +395,98 @@ function App() {
         </div>
       )}
 
+      {/* Mark Safe Form */}
+      {showMarkSafeForm && (
+        <div className="post-form">
+          <h3>✓ Mark User as Safe</h3>
+          <p style={{ color: '#666', marginBottom: '15px' }}>
+            Create a safety status post to let others know you're safe
+          </p>
+          <form onSubmit={handleMarkSafe}>
+            <div className="form-group">
+              <label>Your User ID:</label>
+              <input
+                type="text"
+                value={safeUserId}
+                onChange={(e) => setSafeUserId(e.target.value)}
+                required
+                placeholder="Enter your user ID"
+              />
+            </div>
+            <button type="submit">Mark as Safe</button>
+          </form>
+        </div>
+      )}
+
+      {/* View Nearby Form */}
+      {showNearbyForm && (
+        <div className="post-form">
+          <h3>📍 View Nearby Help Requests</h3>
+          <p style={{ color: '#666', marginBottom: '15px' }}>
+            Find help requests near a specific location
+          </p>
+          <form onSubmit={handleViewNearby}>
+            <div className="form-group">
+              <label>Location:</label>
+              <div className="location-inputs">
+                <input
+                  type="number"
+                  step="any"
+                  value={nearbyLocation.latitude}
+                  onChange={(e) => setNearbyLocation({ ...nearbyLocation, latitude: parseFloat(e.target.value) })}
+                  placeholder="Latitude"
+                  required
+                />
+                <input
+                  type="number"
+                  step="any"
+                  value={nearbyLocation.longitude}
+                  onChange={(e) => setNearbyLocation({ ...nearbyLocation, longitude: parseFloat(e.target.value) })}
+                  placeholder="Longitude"
+                  required
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Search Radius (meters):</label>
+              <input
+                type="number"
+                value={nearbyLocation.radius}
+                onChange={(e) => setNearbyLocation({ ...nearbyLocation, radius: parseInt(e.target.value) })}
+                placeholder="10000"
+                min="100"
+                step="1000"
+              />
+              <small style={{ color: '#666', display: 'block', marginTop: '5px' }}>
+                Default: 10,000 meters (~6 miles)
+              </small>
+            </div>
+            <button type="submit">Search Nearby</button>
+          </form>
+        </div>
+      )}
+
       {/* Posts Feed */}
       <div className="posts-container">
-        <h2>Recent Posts ({posts.length})</h2>
+        <h2>
+          {showingNearby ? `Nearby Help Requests (${nearbyPosts.length})` : `Recent Posts (${posts.length})`}
+        </h2>
+        {showingNearby && (
+          <p style={{ color: '#666', marginBottom: '15px' }}>
+            Showing help requests within {nearbyLocation.radius}m of
+            ({nearbyLocation.latitude.toFixed(4)}, {nearbyLocation.longitude.toFixed(4)})
+          </p>
+        )}
 
         {loading ? (
           <div className="loading">Loading posts...</div>
-        ) : posts.length === 0 ? (
-          <div className="no-posts">No posts available in this region.</div>
+        ) : (showingNearby ? nearbyPosts : posts).length === 0 ? (
+          <div className="no-posts">
+            {showingNearby ? 'No help requests found in this area.' : 'No posts available in this region.'}
+          </div>
         ) : (
           <div className="posts-grid">
-            {posts.map((post) => (
+            {(showingNearby ? nearbyPosts : posts).map((post) => (
               <div key={post.post_id} className="post-card">
                 <div
                   className="post-type-badge"
