@@ -78,6 +78,11 @@ class ReplicationEngine:
         }
         self.cleanup_counter = 0  # Counter for periodic cleanup
 
+        # Island mode state
+        self.island_mode_active = False
+        self.island_mode_start_time: Optional[datetime] = None
+        self.island_mode_threshold = 60  # seconds - region isolated for >60s enters island mode
+
     def start_sync_daemon(self):
         """Start the background synchronization daemon."""
         if self.running:
@@ -180,6 +185,59 @@ class ReplicationEngine:
             else:
                 status['consecutive_failures'] = status.get('consecutive_failures', 0) + 1
 
+        # Check if we should enter or exit island mode
+        self._check_island_mode()
+
+    def _check_island_mode(self):
+        """
+        Check if region should enter or exit island mode based on connectivity.
+
+        Island mode is activated when:
+        - All remote regions are disconnected
+        - Disconnected for more than island_mode_threshold seconds (60s)
+        """
+        now = datetime.now(timezone.utc)
+        connected_regions = sum(1 for s in self.region_status.values() if s.get('connected', False))
+        total_regions = len(self.remote_regions)
+
+        # No remote regions configured - not in island mode
+        if total_regions == 0:
+            if self.island_mode_active:
+                logger.info("Exiting island mode - no remote regions configured")
+                self.island_mode_active = False
+                self.island_mode_start_time = None
+            return
+
+        # All regions disconnected
+        if connected_regions == 0:
+            if not self.island_mode_active:
+                # Track when isolation started
+                if self.island_mode_start_time is None:
+                    self.island_mode_start_time = now
+                    logger.warning(f"All regions disconnected. Island mode will activate in {self.island_mode_threshold}s")
+                else:
+                    # Check if threshold has been exceeded
+                    isolation_duration = (now - self.island_mode_start_time).total_seconds()
+                    if isolation_duration >= self.island_mode_threshold:
+                        self.island_mode_active = True
+                        logger.warning(f"⚠️ ISLAND MODE ACTIVATED - Region isolated for {isolation_duration:.0f}s")
+            else:
+                # Already in island mode, update duration
+                isolation_duration = (now - self.island_mode_start_time).total_seconds()
+                if int(isolation_duration) % 30 == 0:  # Log every 30 seconds
+                    logger.info(f"Island mode active for {isolation_duration:.0f}s")
+        else:
+            # At least one region connected - exit island mode
+            if self.island_mode_active or self.island_mode_start_time is not None:
+                if self.island_mode_active:
+                    isolation_duration = (now - self.island_mode_start_time).total_seconds()
+                    logger.info(f"✅ ISLAND MODE DEACTIVATED - Connectivity restored after {isolation_duration:.0f}s")
+                else:
+                    logger.info("Connectivity restored before island mode threshold")
+
+                self.island_mode_active = False
+                self.island_mode_start_time = None
+
     def get_island_mode_status(self) -> Dict[str, Any]:
         """
         Get island mode status for this region.
@@ -189,6 +247,11 @@ class ReplicationEngine:
         """
         connected_regions = sum(1 for s in self.region_status.values() if s.get('connected', False))
         total_regions = len(self.remote_regions)
+
+        # Calculate isolation duration
+        isolation_duration = None
+        if self.island_mode_start_time:
+            isolation_duration = (datetime.now(timezone.utc) - self.island_mode_start_time).total_seconds()
 
         # Serialize region details for JSON
         serialized_details = {}
@@ -201,7 +264,10 @@ class ReplicationEngine:
             }
 
         return {
-            'is_island': connected_regions == 0 and total_regions > 0,
+            'is_island': self.island_mode_active,
+            'island_mode_threshold': self.island_mode_threshold,
+            'isolation_start': self.island_mode_start_time.isoformat() if self.island_mode_start_time else None,
+            'isolation_duration_seconds': isolation_duration,
             'connected_regions': connected_regions,
             'total_regions': total_regions,
             'region_details': serialized_details

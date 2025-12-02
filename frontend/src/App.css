@@ -298,6 +298,14 @@ body {
   padding: 15px;
 }
 
+.post-user {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+  color: #667eea;
+  font-size: 0.95em;
+}
+
 .post-message {
   color: #333;
   line-height: 1.6;
@@ -361,4 +369,49 @@ body {
   .status-info {
     grid-template-columns: 1fr;
   }
+}
+
+/* Island Mode Warning */
+.island-mode-warning {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 8px;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
+  animation: pulse-warning 2s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
+  }
+  50% {
+    box-shadow: 0 2px 12px rgba(255, 193, 7, 0.5);
+  }
+}
+
+.island-mode-warning .warning-icon {
+  font-size: 2em;
+  line-height: 1;
+}
+
+.island-mode-warning .warning-content {
+  flex: 1;
+}
+
+.island-mode-warning strong {
+  color: #856404;
+  font-size: 1.1em;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.island-mode-warning p {
+  color: #856404;
+  margin: 0;
+  line-height: 1.5;
 }

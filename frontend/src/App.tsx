@@ -37,6 +37,15 @@ function App() {
     loadRegionHealth();
   }, [selectedRegion]);
 
+  // Poll region health every 5 seconds for real-time island mode updates
+  useEffect(() => {
+    const healthInterval = setInterval(() => {
+      loadRegionHealth();
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(healthInterval);
+  }, [selectedRegion]);
+
   const loadPosts = async () => {
     setLoading(true);
     setError(null);
@@ -159,6 +168,20 @@ function App() {
           All times displayed in UTC
         </span>
       </div>
+
+      {/* Island Mode Warning */}
+      {regionHealth?.island_mode?.active && (
+        <div className="island-mode-warning">
+          <div className="warning-icon">⚠️</div>
+          <div className="warning-content">
+            <strong>ISLAND MODE ACTIVE</strong>
+            <p>
+              This region is isolated from other regions.
+              {' '}Local operations continue normally, but cross-region sync is paused.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* System Status */}
       {regionHealth && (
@@ -285,6 +308,9 @@ function App() {
                   {post.post_type.toUpperCase()}
                 </div>
                 <div className="post-content">
+                  <div className="post-user">
+                    <strong>👤 {post.user_id}</strong>
+                  </div>
                   <p className="post-message">{post.message}</p>
                   <div className="post-meta">
                     <span className="post-region">📍 {post.region}</span>
