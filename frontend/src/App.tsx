@@ -20,6 +20,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [regionHealth, setRegionHealth] = useState<any>(null);
 
+  // All regions health status for the overview panel
+  const [allRegionsHealth, setAllRegionsHealth] = useState<Record<string, any>>({});
+
   // New post form state
   const [showPostForm, setShowPostForm] = useState(false);
   const [newPost, setNewPost] = useState({
@@ -71,6 +74,38 @@ function App() {
 
     return () => clearInterval(healthInterval);
   }, [selectedRegion]);
+
+  // Load health status for all regions
+  const loadAllRegionsHealth = async () => {
+    const healthResults: Record<string, any> = {};
+    
+    await Promise.all(
+      REGIONS.map(async (region) => {
+        try {
+          const response = await fetch(`${region.url}/status`);
+          if (response.ok) {
+            healthResults[region.code] = await response.json();
+          } else {
+            healthResults[region.code] = { error: 'Failed to fetch', status: 'unreachable' };
+          }
+        } catch (err) {
+          healthResults[region.code] = { error: 'Connection failed', status: 'unreachable' };
+        }
+      })
+    );
+    
+    setAllRegionsHealth(healthResults);
+  };
+
+  // Poll all regions health every 5 seconds
+  useEffect(() => {
+    loadAllRegionsHealth(); // Initial load
+    const allHealthInterval = setInterval(() => {
+      loadAllRegionsHealth();
+    }, 5000);
+
+    return () => clearInterval(allHealthInterval);
+  }, []);
 
   const loadPosts = async () => {
     setLoading(true);
@@ -222,13 +257,49 @@ function App() {
   };
 
   const calculateIslandDuration = (): number | null => {
+    // Use the backend-provided isolation_start and calculate elapsed time
     if (!regionHealth?.island_mode?.isolation_start) {
       return null;
     }
 
+    // Parse the ISO timestamp from backend
     const startTime = new Date(regionHealth.island_mode.isolation_start);
+    
+    // Check if the date is valid
+    if (isNaN(startTime.getTime())) {
+      console.warn('Invalid isolation_start timestamp:', regionHealth.island_mode.isolation_start);
+      // Fallback to backend-provided duration
+      return regionHealth?.island_mode?.isolation_duration_seconds ?? null;
+    }
+
     const elapsed = (currentTime.getTime() - startTime.getTime()) / 1000; // Convert to seconds
     return Math.max(0, elapsed);
+  };
+
+  // Calculate island duration for any region's health data
+  const calculateRegionIslandDuration = (health: any): number | null => {
+    if (!health?.island_mode?.isolation_start) {
+      return null;
+    }
+
+    const startTime = new Date(health.island_mode.isolation_start);
+    
+    if (isNaN(startTime.getTime())) {
+      return health?.island_mode?.isolation_duration_seconds ?? null;
+    }
+
+    const elapsed = (currentTime.getTime() - startTime.getTime()) / 1000;
+    return Math.max(0, elapsed);
+  };
+
+  // Get region display info
+  const getRegionEmoji = (code: string): string => {
+    const emojis: Record<string, string> = {
+      'north_america': '🌎',
+      'europe': '🌍',
+      'asia_pacific': '🌏'
+    };
+    return emojis[code] || '🌐';
   };
 
   return (
@@ -238,6 +309,68 @@ function App() {
         <h1>MeshNetwork</h1>
         <p>Disaster Resilient Social Platform</p>
       </header>
+
+      {/* All Regions Status Panel */}
+      <div className="all-regions-panel">
+        <h3>🌐 Global Region Status</h3>
+        <div className="regions-grid">
+          {REGIONS.map((region) => {
+            const health = allRegionsHealth[region.code];
+            const isUnreachable = !health || health.status === 'unreachable';
+            const isIsland = health?.island_mode?.active;
+            const islandDuration = health ? calculateRegionIslandDuration(health) : null;
+            
+            return (
+              <div 
+                key={region.code} 
+                className={`region-card ${isUnreachable ? 'unreachable' : ''} ${isIsland ? 'island' : ''} ${selectedRegion.code === region.code ? 'selected' : ''}`}
+                onClick={() => setSelectedRegion(region)}
+              >
+                <div className="region-header">
+                  <span className="region-emoji">{getRegionEmoji(region.code)}</span>
+                  <span className="region-name">{region.name}</span>
+                  {selectedRegion.code === region.code && <span className="current-badge">VIEWING</span>}
+                </div>
+                
+                {isUnreachable ? (
+                  <div className="region-status unreachable">
+                    <span className="status-indicator">❌</span>
+                    <span>Unreachable</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="region-status">
+                      <span className={`status-indicator ${health?.database?.status === 'healthy' ? 'healthy' : 'degraded'}`}>
+                        {health?.database?.status === 'healthy' ? '✅' : '⚠️'}
+                      </span>
+                      <span>DB: {health?.database?.status || 'unknown'}</span>
+                    </div>
+                    
+                    {isIsland ? (
+                      <div className="region-island-status">
+                        <span className="island-indicator">🏝️</span>
+                        <span className="island-label">ISLAND MODE</span>
+                        <span className="island-timer">
+                          {islandDuration !== null 
+                            ? formatDuration(islandDuration)
+                            : health?.island_mode?.isolation_duration_seconds 
+                              ? formatDuration(health.island_mode.isolation_duration_seconds)
+                              : '--'}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="region-connected-status">
+                        <span className="connected-indicator">🔗</span>
+                        <span>Connected ({health?.island_mode?.connected_regions || 0}/{health?.island_mode?.total_regions || 0} regions)</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Region Selector */}
       <div className="region-selector">
@@ -269,11 +402,16 @@ function App() {
               This region is isolated from other regions.
               {' '}Local operations continue normally, but cross-region sync is paused.
             </p>
-            {calculateIslandDuration() !== null && (
-              <p style={{ marginTop: '8px', fontWeight: 600 }}>
-                Isolated for: {formatDuration(calculateIslandDuration()!)}
-              </p>
-            )}
+            <p style={{ marginTop: '8px', fontWeight: 600, fontSize: '1.1em' }}>
+              ⏱️ Isolated for:{' '}
+              <span style={{ color: '#ff6b35', fontFamily: 'monospace' }}>
+                {calculateIslandDuration() !== null 
+                  ? formatDuration(calculateIslandDuration()!)
+                  : regionHealth?.island_mode?.isolation_duration_seconds 
+                    ? formatDuration(regionHealth.island_mode.isolation_duration_seconds)
+                    : 'calculating...'}
+              </span>
+            </p>
           </div>
         </div>
       )}

@@ -4,16 +4,67 @@
 # Usage: ./partition-region.sh <region> <action>
 # Example: ./partition-region.sh na partition
 #          ./partition-region.sh na restore
+#          ./partition-region.sh status
 
 set -e
 
 REGION=$1
 ACTION=$2
 
+# Special case: reset command clears all partitions
+if [ "$REGION" = "reset" ]; then
+    echo "=== Resetting all partitions ==="
+    for container in flask-backend-na flask-backend-eu flask-backend-ap; do
+        docker exec $container rm -f /tmp/PARTITIONED 2>/dev/null || true
+        docker exec $container sh -c "grep -v '0.0.0.0 flask-backend' /etc/hosts > /tmp/hosts.tmp && cat /tmp/hosts.tmp > /etc/hosts" 2>/dev/null || true
+    done
+    echo "✓ All partitions cleared"
+    echo ""
+    $0 status
+    exit 0
+fi
+
+# Special case: status command shows all partition states
+if [ "$REGION" = "status" ]; then
+    echo "=== Partition Status ==="
+    echo ""
+    
+    for region in na eu ap; do
+        case $region in
+            na) container="flask-backend-na"; name="North America" ;;
+            eu) container="flask-backend-eu"; name="Europe" ;;
+            ap) container="flask-backend-ap"; name="Asia-Pacific" ;;
+        esac
+        
+        # Check if this region initiated its own partition (has marker file)
+        is_partitioned=$(docker exec $container sh -c "test -f /tmp/PARTITIONED && echo 'yes' || echo 'no'" 2>/dev/null)
+        
+        # Count blocks in /etc/hosts for additional info
+        blocked=$(docker exec $container cat /etc/hosts 2>/dev/null | grep "0.0.0.0 flask-backend" | wc -l | tr -d ' ')
+        
+        if [ "$is_partitioned" = "yes" ]; then
+            echo "🏝️  $name ($region): PARTITIONED (blocking $blocked regions)"
+        elif [ "$blocked" -gt 0 ]; then
+            echo "🔗 $name ($region): Connected (has $blocked incoming blocks from other partitions)"
+        else
+            echo "🔗 $name ($region): Connected"
+        fi
+    done
+    
+    echo ""
+    exit 0
+fi
+
 if [ -z "$REGION" ] || [ -z "$ACTION" ]; then
     echo "Usage: $0 <region> <partition|restore>"
-    echo "Example: $0 na partition"
-    echo "         $0 na restore"
+    echo "       $0 status"
+    echo "       $0 reset"
+    echo ""
+    echo "Examples:"
+    echo "  $0 na partition  - Partition North America from other regions"
+    echo "  $0 na restore    - Restore North America connectivity only"
+    echo "  $0 status        - Show current partition status for all regions"
+    echo "  $0 reset         - Clear ALL partitions (full reset)"
     exit 1
 fi
 
@@ -51,15 +102,16 @@ esac
 if [ "$ACTION" = "partition" ]; then
     echo "Partitioning $REGION from other regions..."
 
-    # Block traffic by adding black hole IPs to /etc/hosts
-    docker exec $CONTAINER sh -c "
-        echo '0.0.0.0 $TARGET1' >> /etc/hosts
-        echo '0.0.0.0 $TARGET2' >> /etc/hosts
-    "
+    # Mark this region as partitioned (for tracking)
+    docker exec $CONTAINER sh -c "touch /tmp/PARTITIONED"
 
-    # Also block from the other direction - make EU and AP not try to reach NA
-    docker exec $TARGET1 sh -c "echo '0.0.0.0 $CONTAINER' >> /etc/hosts"
-    docker exec $TARGET2 sh -c "echo '0.0.0.0 $CONTAINER' >> /etc/hosts"
+    # Block traffic by adding black hole IPs to /etc/hosts (avoid duplicates)
+    docker exec $CONTAINER sh -c "grep -q '0.0.0.0 $TARGET1' /etc/hosts || echo '0.0.0.0 $TARGET1' >> /etc/hosts"
+    docker exec $CONTAINER sh -c "grep -q '0.0.0.0 $TARGET2' /etc/hosts || echo '0.0.0.0 $TARGET2' >> /etc/hosts"
+
+    # Also block from the other direction - make others not try to reach this region (avoid duplicates)
+    docker exec $TARGET1 sh -c "grep -q '0.0.0.0 $CONTAINER' /etc/hosts || echo '0.0.0.0 $CONTAINER' >> /etc/hosts"
+    docker exec $TARGET2 sh -c "grep -q '0.0.0.0 $CONTAINER' /etc/hosts || echo '0.0.0.0 $CONTAINER' >> /etc/hosts"
 
     echo "Partition activated"
     echo "✓ $REGION is now partitioned from other regions"
@@ -70,15 +122,40 @@ if [ "$ACTION" = "partition" ]; then
 elif [ "$ACTION" = "restore" ]; then
     echo "Restoring $REGION connectivity..."
 
-    # Restart containers to reset /etc/hosts
-    echo "Restarting containers to restore connectivity..."
-    docker restart $CONTAINER $TARGET1 $TARGET2 > /dev/null 2>&1
+    # Remove partition marker
+    docker exec $CONTAINER sh -c "rm -f /tmp/PARTITIONED" 2>/dev/null || true
+    
+    # Check which targets are partitioned BEFORE removing blocks
+    TARGET1_IS_PARTITIONED=$(docker exec $TARGET1 sh -c "test -f /tmp/PARTITIONED && echo 'yes' || echo 'no'" 2>/dev/null)
+    TARGET2_IS_PARTITIONED=$(docker exec $TARGET2 sh -c "test -f /tmp/PARTITIONED && echo 'yes' || echo 'no'" 2>/dev/null)
+    
+    # Remove blocks from this region's /etc/hosts, but KEEP blocks for regions that are still partitioned
+    # (those blocks are "incoming" from the other region's partition)
+    if [ "$TARGET1_IS_PARTITIONED" = "no" ]; then
+        docker exec $CONTAINER sh -c "grep -v '0.0.0.0 $TARGET1' /etc/hosts > /tmp/hosts.tmp && cat /tmp/hosts.tmp > /etc/hosts" 2>/dev/null || true
+    fi
+    if [ "$TARGET2_IS_PARTITIONED" = "no" ]; then
+        docker exec $CONTAINER sh -c "grep -v '0.0.0.0 $TARGET2' /etc/hosts > /tmp/hosts.tmp && cat /tmp/hosts.tmp > /etc/hosts" 2>/dev/null || true
+    fi
 
-    # Wait for containers to be ready
-    sleep 3
+    # Remove this region's block from other containers
+    # BUT only if that other region is NOT itself partitioned (check for marker file)
+    if [ "$TARGET1_IS_PARTITIONED" = "no" ]; then
+        docker exec $TARGET1 sh -c "grep -v '0.0.0.0 $CONTAINER' /etc/hosts > /tmp/hosts.tmp && cat /tmp/hosts.tmp > /etc/hosts" 2>/dev/null || true
+        echo "  ✓ $REGION ↔ $TARGET1: bidirectional communication restored"
+    else
+        echo "  ⚠ $REGION ↔ $TARGET1: $TARGET1 is partitioned, both directions blocked"
+    fi
+    
+    if [ "$TARGET2_IS_PARTITIONED" = "no" ]; then
+        docker exec $TARGET2 sh -c "grep -v '0.0.0.0 $CONTAINER' /etc/hosts > /tmp/hosts.tmp && cat /tmp/hosts.tmp > /etc/hosts" 2>/dev/null || true
+        echo "  ✓ $REGION ↔ $TARGET2: bidirectional communication restored"
+    else
+        echo "  ⚠ $REGION ↔ $TARGET2: $TARGET2 is partitioned, both directions blocked"
+    fi
 
-    echo "Connectivity restored"
-    echo "✓ $REGION connectivity restored"
+    echo ""
+    echo "✓ $REGION restored (keeping blocks for still-partitioned regions)"
 
 else
     echo "Invalid action: $ACTION (must be partition or restore)"
