@@ -51,13 +51,21 @@ class ApiService {
   }
 
   /**
-   * Get posts with optional filters
+   * Get posts with optional filters and pagination
    */
   async getPosts(params?: {
     post_type?: string;
     region?: string;
     limit?: number;
-  }) {
+    skip?: number;
+  }): Promise<{
+    posts: Post[];
+    count: number;
+    total_count: number;
+    skip: number;
+    limit: number;
+    region: string;
+  }> {
     const response = await this.client.get('/api/posts', { params });
     return response.data;
   }

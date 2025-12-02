@@ -59,12 +59,13 @@ def detailed_status():
             'database': db_health,
             'island_mode': {
                 'active': island_status['is_island'],
+                'suspect': island_status.get('is_suspect', False),
                 'threshold_seconds': island_status['island_mode_threshold'],
                 'isolation_start': island_status['isolation_start'],
                 'isolation_duration_seconds': island_status['isolation_duration_seconds'],
                 'connected_regions': island_status['connected_regions'],
                 'total_regions': island_status['total_regions'],
-                'status': 'ISLAND MODE' if island_status['is_island'] else 'connected'
+                'status': 'ISLAND MODE' if island_status['is_island'] else ('SUSPECT' if island_status.get('is_suspect', False) else 'connected')
             },
             'remote_regions': {
                 url: 'reachable' if reachable else 'unreachable'

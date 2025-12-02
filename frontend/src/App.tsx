@@ -47,6 +47,11 @@ function App() {
   const [nearbyPosts, setNearbyPosts] = useState<Post[]>([]);
   const [showingNearby, setShowingNearby] = useState(false);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPosts, setTotalPosts] = useState(0);
+  const postsPerPage = 50;
+
   // Live-updating island mode timer
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -62,7 +67,8 @@ function App() {
   // Load posts when region changes
   useEffect(() => {
     api.setBaseUrl(selectedRegion.url);
-    loadPosts();
+    setCurrentPage(1); // Reset to first page when switching regions
+    loadPosts(1);
     loadRegionHealth();
   }, [selectedRegion]);
 
@@ -107,13 +113,20 @@ function App() {
     return () => clearInterval(allHealthInterval);
   }, []);
 
-  const loadPosts = async () => {
+  const loadPosts = async (page: number = currentPage) => {
     setLoading(true);
     setError(null);
     try {
+      const skip = (page - 1) * postsPerPage;
       // Use region='all' to show posts from all regions (cross-region sync)
-      const response = await api.getPosts({ limit: 50, region: 'all' });
+      const response = await api.getPosts({ 
+        limit: postsPerPage, 
+        skip: skip,
+        region: 'all' 
+      });
       setPosts(response.posts || []);
+      setTotalPosts(response.total_count || response.count || 0);
+      setCurrentPage(page);
     } catch (err: any) {
       setError(err.message || 'Failed to load posts');
       console.error('Error loading posts:', err);
@@ -164,8 +177,8 @@ function App() {
       });
       setShowPostForm(false);
 
-      // Reload posts
-      loadPosts();
+      // Reload posts (go to first page to see new post)
+      loadPosts(1);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create post');
       console.error('Error creating post:', err);
@@ -181,8 +194,8 @@ function App() {
       setSafeUserId('');
       setShowMarkSafeForm(false);
 
-      // Reload posts to show the new safety status
-      loadPosts();
+      // Reload posts to show the new safety status (go to first page)
+      loadPosts(1);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to mark user as safe');
       console.error('Error marking user safe:', err);
@@ -318,12 +331,13 @@ function App() {
             const health = allRegionsHealth[region.code];
             const isUnreachable = !health || health.status === 'unreachable';
             const isIsland = health?.island_mode?.active;
+            const isSuspect = health?.island_mode?.suspect;
             const islandDuration = health ? calculateRegionIslandDuration(health) : null;
             
             return (
               <div 
                 key={region.code} 
-                className={`region-card ${isUnreachable ? 'unreachable' : ''} ${isIsland ? 'island' : ''} ${selectedRegion.code === region.code ? 'selected' : ''}`}
+                className={`region-card ${isUnreachable ? 'unreachable' : ''} ${isIsland ? 'island' : ''} ${isSuspect ? 'suspect' : ''} ${selectedRegion.code === region.code ? 'selected' : ''}`}
                 onClick={() => setSelectedRegion(region)}
               >
                 <div className="region-header">
@@ -351,6 +365,18 @@ function App() {
                         <span className="island-indicator">🏝️</span>
                         <span className="island-label">ISLAND MODE</span>
                         <span className="island-timer">
+                          {islandDuration !== null 
+                            ? formatDuration(islandDuration)
+                            : health?.island_mode?.isolation_duration_seconds 
+                              ? formatDuration(health.island_mode.isolation_duration_seconds)
+                              : '--'}
+                        </span>
+                      </div>
+                    ) : isSuspect ? (
+                      <div className="region-suspect-status">
+                        <span className="suspect-indicator">⚠️</span>
+                        <span className="suspect-label">SUSPECT</span>
+                        <span className="suspect-timer">
                           {islandDuration !== null 
                             ? formatDuration(islandDuration)
                             : health?.island_mode?.isolation_duration_seconds 
@@ -447,7 +473,7 @@ function App() {
 
       {/* Action Buttons */}
       <div className="action-buttons">
-        <button onClick={loadPosts} disabled={loading}>
+        <button onClick={() => loadPosts(currentPage)} disabled={loading}>
           {loading ? 'Loading...' : 'Refresh Posts'}
         </button>
         <button onClick={() => setShowPostForm(!showPostForm)}>
@@ -460,7 +486,7 @@ function App() {
           {showNearbyForm ? 'Hide' : '📍 View Nearby'}
         </button>
         {showingNearby && (
-          <button onClick={() => { setShowingNearby(false); loadPosts(); }}>
+          <button onClick={() => { setShowingNearby(false); loadPosts(1); }}>
             Show All Posts
           </button>
         )}
@@ -606,9 +632,19 @@ function App() {
 
       {/* Posts Feed */}
       <div className="posts-container">
-        <h2>
-          {showingNearby ? `Nearby Help Requests (${nearbyPosts.length})` : `Recent Posts (${posts.length})`}
-        </h2>
+        <div className="posts-header">
+          <h2>
+            {showingNearby ? `Nearby Help Requests (${nearbyPosts.length})` : 'Recent Posts'}
+          </h2>
+          {!showingNearby && totalPosts > 0 && (
+            <div className="pagination-info">
+              <span className="pagination-range">
+                {((currentPage - 1) * postsPerPage) + 1}-{Math.min(currentPage * postsPerPage, totalPosts)} of {totalPosts.toLocaleString()}
+              </span>
+            </div>
+          )}
+        </div>
+        
         {showingNearby && (
           <p style={{ color: '#666', marginBottom: '15px' }}>
             Showing help requests within {nearbyLocation.radius}m of
@@ -623,33 +659,72 @@ function App() {
             {showingNearby ? 'No help requests found in this area.' : 'No posts available in this region.'}
           </div>
         ) : (
-          <div className="posts-grid">
-            {(showingNearby ? nearbyPosts : posts).map((post) => (
-              <div key={post.post_id} className="post-card">
-                <div
-                  className="post-type-badge"
-                  style={{ backgroundColor: getPostTypeColor(post.post_type) }}
+          <>
+            <div className="posts-grid">
+              {(showingNearby ? nearbyPosts : posts).map((post) => (
+                <div key={post.post_id} className="post-card">
+                  <div
+                    className="post-type-badge"
+                    style={{ backgroundColor: getPostTypeColor(post.post_type) }}
+                  >
+                    {post.post_type.toUpperCase()}
+                  </div>
+                  <div className="post-content">
+                    <div className="post-user">
+                      <strong>👤 {post.user_id}</strong>
+                    </div>
+                    <p className="post-message">{post.message}</p>
+                    <div className="post-meta">
+                      <span className="post-region">📍 {post.region}</span>
+                      {post.capacity && (
+                        <span className="post-capacity">Capacity: {post.capacity}</span>
+                      )}
+                    </div>
+                    <div className="post-timestamp">
+                      {formatTimestamp(post.timestamp)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Pagination Controls */}
+            {!showingNearby && totalPosts > postsPerPage && (
+              <div className="pagination-controls">
+                <button 
+                  onClick={() => loadPosts(1)} 
+                  disabled={currentPage === 1 || loading}
+                  className="pagination-btn"
                 >
-                  {post.post_type.toUpperCase()}
-                </div>
-                <div className="post-content">
-                  <div className="post-user">
-                    <strong>👤 {post.user_id}</strong>
-                  </div>
-                  <p className="post-message">{post.message}</p>
-                  <div className="post-meta">
-                    <span className="post-region">📍 {post.region}</span>
-                    {post.capacity && (
-                      <span className="post-capacity">Capacity: {post.capacity}</span>
-                    )}
-                  </div>
-                  <div className="post-timestamp">
-                    {formatTimestamp(post.timestamp)}
-                  </div>
-                </div>
+                  ⏮ First
+                </button>
+                <button 
+                  onClick={() => loadPosts(currentPage - 1)} 
+                  disabled={currentPage === 1 || loading}
+                  className="pagination-btn"
+                >
+                  ← Previous
+                </button>
+                <span className="pagination-current">
+                  Page {currentPage} of {Math.ceil(totalPosts / postsPerPage)}
+                </span>
+                <button 
+                  onClick={() => loadPosts(currentPage + 1)} 
+                  disabled={currentPage >= Math.ceil(totalPosts / postsPerPage) || loading}
+                  className="pagination-btn"
+                >
+                  Next →
+                </button>
+                <button 
+                  onClick={() => loadPosts(Math.ceil(totalPosts / postsPerPage))} 
+                  disabled={currentPage >= Math.ceil(totalPosts / postsPerPage) || loading}
+                  className="pagination-btn"
+                >
+                  Last ⏭
+                </button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -38,6 +38,7 @@ def get_posts():
         - region: Filter by region
         - global: If 'true', query all regions (scatter-gather)
         - limit: Maximum number of results (default: 100)
+        - skip: Number of results to skip for pagination (default: 0)
     """
     try:
         # Get query parameters
@@ -45,6 +46,7 @@ def get_posts():
         region = request.args.get('region')
         global_query = request.args.get('global', 'false').lower() == 'true'
         limit = int(request.args.get('limit', 100))
+        skip = int(request.args.get('skip', 0))
 
         # Global query: scatter-gather across all regions
         if global_query:
@@ -141,11 +143,15 @@ def get_posts():
                 # Default to local region
                 query['region'] = config.REGION
 
-            # Execute query
+            # Get total count for pagination
+            total_count = db_service.count('posts', query)
+
+            # Execute query with skip for pagination
             posts = db_service.find_many(
                 'posts',
                 query,
                 sort=[('timestamp', -1)],
+                skip=skip,
                 limit=limit
             )
 
@@ -156,6 +162,9 @@ def get_posts():
             response = {
                 'posts': posts,
                 'count': len(posts),
+                'total_count': total_count,
+                'skip': skip,
+                'limit': limit,
                 'region': config.REGION
             }
             return jsonify(_add_timezone_metadata(response)), 200

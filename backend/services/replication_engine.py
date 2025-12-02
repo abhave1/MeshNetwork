@@ -81,7 +81,7 @@ class ReplicationEngine:
         # Island mode state
         self.island_mode_active = False
         self.island_mode_start_time: Optional[datetime] = None
-        self.island_mode_threshold = 60  # seconds - region isolated for >60s enters island mode
+        self.island_mode_threshold = 30  # seconds - region isolated for >30s enters island mode
 
     def start_sync_daemon(self):
         """Start the background synchronization daemon."""
@@ -263,8 +263,15 @@ class ReplicationEngine:
                 'consecutive_failures': status.get('consecutive_failures', 0)
             }
 
+        # Suspect = disconnected from all regions but not yet in island mode
+        is_suspect = (connected_regions == 0 and 
+                      total_regions > 0 and 
+                      self.island_mode_start_time is not None and 
+                      not self.island_mode_active)
+
         return {
             'is_island': self.island_mode_active,
+            'is_suspect': is_suspect,
             'island_mode_threshold': self.island_mode_threshold,
             'isolation_start': self.island_mode_start_time.isoformat() if self.island_mode_start_time else None,
             'isolation_duration_seconds': isolation_duration,

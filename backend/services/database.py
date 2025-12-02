@@ -136,15 +136,19 @@ class DatabaseService:
         collection_name: str,
         query: Dict[str, Any],
         sort: Optional[List[tuple]] = None,
+        skip: Optional[int] = None,
         limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """Find multiple documents matching the query."""
+        """Find multiple documents matching the query with pagination support."""
         try:
             collection = self.get_collection(collection_name)
             cursor = collection.find(query)
 
             if sort:
                 cursor = cursor.sort(sort)
+
+            if skip:
+                cursor = cursor.skip(skip)
 
             if limit:
                 cursor = cursor.limit(limit)
@@ -153,6 +157,15 @@ class DatabaseService:
             return results
         except Exception as e:
             logger.error(f"Error finding documents in {collection_name}: {e}")
+            raise
+
+    def count(self, collection_name: str, query: Dict[str, Any]) -> int:
+        """Count documents matching the query."""
+        try:
+            collection = self.get_collection(collection_name)
+            return collection.count_documents(query)
+        except Exception as e:
+            logger.error(f"Error counting documents in {collection_name}: {e}")
             raise
 
     def update_one(
