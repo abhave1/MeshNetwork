@@ -4,16 +4,15 @@
   "description": "Disaster Resilient Social Platform Frontend",
   "private": true,
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "typescript": "^4.9.5",
+    "@types/leaflet": "^1.9.8",
+    "@types/react-dom": "^18.2.0",
     "axios": "^1.6.0",
     "leaflet": "^1.9.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-leaflet": "^4.2.1",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@types/leaflet": "^1.9.8",
     "react-scripts": "5.0.1",
+    "typescript": "^4.9.5",
     "web-vitals": "^3.5.0"
   },
   "scripts": {
@@ -38,5 +37,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.27"
   }
 }
