@@ -1,15 +1,8 @@
-"""
-User model for MeshNetwork application.
-"""
-
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import uuid
 
-
 class User:
-    """User data model."""
-
     def __init__(
         self,
         user_id: Optional[str] = None,
@@ -31,7 +24,6 @@ class User:
         self.created_at = created_at or datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert user to dictionary for MongoDB storage."""
         return {
             "user_id": self.user_id,
             "name": self.name,
@@ -45,7 +37,6 @@ class User:
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> 'User':
-        """Create User object from dictionary."""
         return User(
             user_id=data.get('user_id'),
             name=data.get('name', ''),
@@ -58,10 +49,6 @@ class User:
         )
 
     def validate(self) -> tuple[bool, Optional[str]]:
-        """
-        Validate user data.
-        Returns (is_valid, error_message).
-        """
         if not self.name or len(self.name.strip()) == 0:
             return False, "Name is required"
 
@@ -71,7 +58,6 @@ class User:
         if not self.region:
             return False, "Region is required"
 
-        # Validate location structure
         if not isinstance(self.location, dict):
             return False, "Location must be an object"
 

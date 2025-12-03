@@ -1,18 +1,10 @@
 #!/bin/bash
 
-# Initialize all MongoDB replica sets for MeshNetwork
-# This script must be run after docker-compose up -d
-
-echo "========================================="
 echo "Initializing MongoDB Replica Sets"
-echo "========================================="
 
-# Wait for MongoDB containers to be ready
 echo "Waiting for MongoDB containers to start..."
 sleep 15
 
-# Initialize North America replica set
-echo ""
 echo "Initializing North America replica set..."
 docker exec mongodb-na-primary mongosh --eval "
 rs.initiate({
@@ -25,11 +17,9 @@ rs.initiate({
 });
 "
 
-# Wait for replica set to initialize and elect primary
 echo "Waiting for primary election..."
 sleep 10
 
-# Create collections and indexes for North America
 echo "Creating collections and indexes for North America..."
 docker exec mongodb-na-primary mongosh meshnetwork --eval "
 db.createCollection('users');
@@ -52,8 +42,6 @@ db.operation_log.createIndex({ synced_to: 1 });
 db.operation_log.createIndex({ region_origin: 1 });
 "
 
-# Initialize Europe replica set
-echo ""
 echo "Initializing Europe replica set..."
 docker exec mongodb-eu-primary mongosh --eval "
 rs.initiate({
@@ -66,11 +54,9 @@ rs.initiate({
 });
 "
 
-# Wait for replica set to initialize and elect primary
 echo "Waiting for primary election..."
 sleep 10
 
-# Create collections and indexes for Europe
 echo "Creating collections and indexes for Europe..."
 docker exec mongodb-eu-primary mongosh meshnetwork --eval "
 db.createCollection('users');
@@ -93,8 +79,6 @@ db.operation_log.createIndex({ synced_to: 1 });
 db.operation_log.createIndex({ region_origin: 1 });
 "
 
-# Initialize Asia-Pacific replica set
-echo ""
 echo "Initializing Asia-Pacific replica set..."
 docker exec mongodb-ap-primary mongosh --eval "
 rs.initiate({
@@ -107,11 +91,9 @@ rs.initiate({
 });
 "
 
-# Wait for replica set to initialize and elect primary
 echo "Waiting for primary election..."
 sleep 10
 
-# Create collections and indexes for Asia-Pacific
 echo "Creating collections and indexes for Asia-Pacific..."
 docker exec mongodb-ap-primary mongosh meshnetwork --eval "
 db.createCollection('users');
@@ -134,25 +116,15 @@ db.operation_log.createIndex({ synced_to: 1 });
 db.operation_log.createIndex({ region_origin: 1 });
 "
 
-echo ""
-echo "========================================="
-echo "All replica sets initialized successfully!"
-echo "========================================="
-echo ""
-echo "Checking replica set status..."
-echo ""
+echo "All replica sets initialized successfully"
 
-# Check North America status
 echo "North America Replica Set Status:"
 docker exec mongodb-na-primary mongosh --quiet --eval "rs.status().members.forEach(m => print(m.name + ': ' + m.stateStr))"
 
-echo ""
 echo "Europe Replica Set Status:"
 docker exec mongodb-eu-primary mongosh --quiet --eval "rs.status().members.forEach(m => print(m.name + ': ' + m.stateStr))"
 
-echo ""
 echo "Asia-Pacific Replica Set Status:"
 docker exec mongodb-ap-primary mongosh --quiet --eval "rs.status().members.forEach(m => print(m.name + ': ' + m.stateStr))"
 
-echo ""
-echo "Initialization complete!"
+echo "Initialization complete"

@@ -1,8 +1,3 @@
-"""
-Replication engine for cross-region data synchronization.
-Handles asynchronous replication between geographic regions.
-"""
-
 import threading
 import time
 import requests
@@ -15,13 +10,10 @@ from bson import ObjectId
 from config import config
 from services.database import db_service
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 def _serialize_for_json(obj: Any) -> Any:
-    """Convert MongoDB objects to JSON-serializable format."""
     if isinstance(obj, ObjectId):
         return str(obj)
     elif isinstance(obj, datetime):
@@ -32,59 +24,44 @@ def _serialize_for_json(obj: Any) -> Any:
         return [_serialize_for_json(item) for item in obj]
     return obj
 
-
 def _deserialize_timestamps(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Convert ISO timestamp strings back to datetime objects.
-    This ensures consistent storage format in MongoDB.
-    """
     if not isinstance(data, dict):
         return data
 
-    # Create a copy to avoid modifying the original
     result = data.copy()
-
-    # Convert common timestamp fields
     timestamp_fields = ['timestamp', 'last_modified', 'created_at', 'updated_at']
 
     for field in timestamp_fields:
         if field in result and isinstance(result[field], str):
             try:
-                # Parse ISO format string to datetime
                 result[field] = datetime.fromisoformat(result[field].replace('Z', '+00:00'))
             except (ValueError, AttributeError) as e:
                 logger.warning(f"Failed to parse timestamp field '{field}': {e}")
 
     return result
 
-
 class ReplicationEngine:
-    """Manages cross-region data replication."""
-
     def __init__(self):
         self.local_region = config.REGION
         self.remote_regions = config.REMOTE_REGIONS
         self.sync_interval = config.SYNC_INTERVAL
         self.running = False
         self.sync_thread: Optional[threading.Thread] = None
-        self.region_status: Dict[str, Dict[str, Any]] = {}  # Track connectivity per region
+        self.region_status: Dict[str, Dict[str, Any]] = {}
         self.conflict_metrics: Dict[str, Any] = {
             'total_conflicts': 0,
             'remote_wins': 0,
             'local_wins': 0,
             'unresolved': 0,
             'by_collection': {},
-            'recent_conflicts': []  # Last 10 conflicts
+            'recent_conflicts': []
         }
-        self.cleanup_counter = 0  # Counter for periodic cleanup
-
-        # Island mode state
+        self.cleanup_counter = 0
         self.island_mode_active = False
         self.island_mode_start_time: Optional[datetime] = None
-        self.island_mode_threshold = 30  # seconds - region isolated for >30s enters island mode
+        self.island_mode_threshold = 10
 
     def start_sync_daemon(self):
-        """Start the background synchronization daemon."""
         if self.running:
             logger.warning("Sync daemon is already running")
             return
@@ -95,7 +72,6 @@ class ReplicationEngine:
         logger.info(f"Sync daemon started with interval: {self.sync_interval}s")
 
     def stop_sync_daemon(self):
-        """Stop the background synchronization daemon."""
         if not self.running:
             return
 
@@ -105,16 +81,11 @@ class ReplicationEngine:
         logger.info("Sync daemon stopped")
 
     def _sync_loop(self):
-        """Main synchronization loop."""
         while self.running:
             try:
-                # Check for local changes and push to remote regions
                 self._push_local_changes()
-
-                # Pull changes from remote regions
                 self._pull_remote_changes()
 
-                # Periodic cleanup (every 60 sync cycles = ~5 minutes with 5s interval)
                 self.cleanup_counter += 1
                 if self.cleanup_counter >= 60:
                     logger.info("Running periodic operation log cleanup")
@@ -126,13 +97,10 @@ class ReplicationEngine:
             except Exception as e:
                 logger.error(f"Error in sync loop: {e}")
 
-            # Wait for next sync interval
             time.sleep(self.sync_interval)
 
     def _push_local_changes(self):
-        """Push local changes to remote regions."""
         try:
-            # Get unsynced operations from operation_log
             operations = db_service.find_many(
                 'operation_log',
                 {
@@ -147,7 +115,6 @@ class ReplicationEngine:
 
             logger.info(f"Found {len(operations)} operations to sync")
 
-            # Try to push to each remote region
             for region_url in self.remote_regions:
                 try:
                     self._push_to_region(region_url, operations)
@@ -158,13 +125,6 @@ class ReplicationEngine:
             logger.error(f"Error pushing local changes: {e}")
 
     def _update_region_status(self, region_url: str, is_connected: bool):
-        """
-        Update connectivity status for a region.
-
-        Args:
-            region_url: URL of the region
-            is_connected: Whether connection was successful
-        """
         now = datetime.now(timezone.utc)
 
         if region_url not in self.region_status:
@@ -185,22 +145,13 @@ class ReplicationEngine:
             else:
                 status['consecutive_failures'] = status.get('consecutive_failures', 0) + 1
 
-        # Check if we should enter or exit island mode
         self._check_island_mode()
 
     def _check_island_mode(self):
-        """
-        Check if region should enter or exit island mode based on connectivity.
-
-        Island mode is activated when:
-        - All remote regions are disconnected
-        - Disconnected for more than island_mode_threshold seconds (60s)
-        """
         now = datetime.now(timezone.utc)
         connected_regions = sum(1 for s in self.region_status.values() if s.get('connected', False))
         total_regions = len(self.remote_regions)
 
-        # No remote regions configured - not in island mode
         if total_regions == 0:
             if self.island_mode_active:
                 logger.info("Exiting island mode - no remote regions configured")
@@ -208,30 +159,25 @@ class ReplicationEngine:
                 self.island_mode_start_time = None
             return
 
-        # All regions disconnected
         if connected_regions == 0:
             if not self.island_mode_active:
-                # Track when isolation started
                 if self.island_mode_start_time is None:
                     self.island_mode_start_time = now
                     logger.warning(f"All regions disconnected. Island mode will activate in {self.island_mode_threshold}s")
                 else:
-                    # Check if threshold has been exceeded
                     isolation_duration = (now - self.island_mode_start_time).total_seconds()
                     if isolation_duration >= self.island_mode_threshold:
                         self.island_mode_active = True
-                        logger.warning(f"⚠️ ISLAND MODE ACTIVATED - Region isolated for {isolation_duration:.0f}s")
+                        logger.warning(f"ISLAND MODE ACTIVATED - Region isolated for {isolation_duration:.0f}s")
             else:
-                # Already in island mode, update duration
                 isolation_duration = (now - self.island_mode_start_time).total_seconds()
-                if int(isolation_duration) % 30 == 0:  # Log every 30 seconds
+                if int(isolation_duration) % 10 == 0:
                     logger.info(f"Island mode active for {isolation_duration:.0f}s")
         else:
-            # At least one region connected - exit island mode
             if self.island_mode_active or self.island_mode_start_time is not None:
                 if self.island_mode_active:
                     isolation_duration = (now - self.island_mode_start_time).total_seconds()
-                    logger.info(f"✅ ISLAND MODE DEACTIVATED - Connectivity restored after {isolation_duration:.0f}s")
+                    logger.info(f"ISLAND MODE DEACTIVATED - Connectivity restored after {isolation_duration:.0f}s")
                 else:
                     logger.info("Connectivity restored before island mode threshold")
 
@@ -239,21 +185,13 @@ class ReplicationEngine:
                 self.island_mode_start_time = None
 
     def get_island_mode_status(self) -> Dict[str, Any]:
-        """
-        Get island mode status for this region.
-
-        Returns:
-            Dict with island mode info and connectivity status
-        """
         connected_regions = sum(1 for s in self.region_status.values() if s.get('connected', False))
         total_regions = len(self.remote_regions)
 
-        # Calculate isolation duration
         isolation_duration = None
         if self.island_mode_start_time:
             isolation_duration = (datetime.now(timezone.utc) - self.island_mode_start_time).total_seconds()
 
-        # Serialize region details for JSON
         serialized_details = {}
         for region_url, status in self.region_status.items():
             serialized_details[region_url] = {
@@ -263,7 +201,6 @@ class ReplicationEngine:
                 'consecutive_failures': status.get('consecutive_failures', 0)
             }
 
-        # Suspect = disconnected from all regions but not yet in island mode
         is_suspect = (connected_regions == 0 and 
                       total_regions > 0 and 
                       self.island_mode_start_time is not None and 
@@ -281,15 +218,7 @@ class ReplicationEngine:
         }
 
     def _push_to_region(self, region_url: str, operations: List[Dict[str, Any]]):
-        """
-        Push operations to a specific region.
-
-        Args:
-            region_url: URL of the target region
-            operations: List of operations to push
-        """
         try:
-            # Convert MongoDB objects to JSON-serializable format
             serializable_ops = [_serialize_for_json(op) for op in operations]
 
             response = requests.post(
@@ -299,7 +228,6 @@ class ReplicationEngine:
             )
 
             if response.status_code == 200:
-                # Mark operations as synced to this region
                 for op in operations:
                     op_id = op.get('_id')
                     db_service.update_one(
@@ -321,7 +249,6 @@ class ReplicationEngine:
             self._update_region_status(region_url, False)
 
     def _pull_remote_changes(self):
-        """Pull changes from remote regions."""
         for region_url in self.remote_regions:
             try:
                 self._pull_from_region(region_url)
@@ -329,12 +256,6 @@ class ReplicationEngine:
                 logger.error(f"Failed to pull from {region_url}: {e}")
 
     def _pull_from_region(self, region_url: str):
-        """
-        Pull changes from a specific region.
-
-        Args:
-            region_url: URL of the source region
-        """
         try:
             response = requests.get(
                 f"{region_url}/internal/changes",
@@ -347,11 +268,8 @@ class ReplicationEngine:
                 if operations:
                     self._apply_operations(operations)
                     logger.info(f"Successfully pulled {len(operations)} operations from {region_url}")
-
-                    # Update last sync time to current time
                     self._update_last_sync_time(region_url, datetime.now(timezone.utc))
 
-                # Update connectivity status
                 self._update_region_status(region_url, True)
             else:
                 self._update_region_status(region_url, False)
@@ -361,12 +279,6 @@ class ReplicationEngine:
             self._update_region_status(region_url, False)
 
     def _apply_operations(self, operations: List[Dict[str, Any]]):
-        """
-        Apply operations received from remote regions.
-
-        Args:
-            operations: List of operations to apply
-        """
         for op in operations:
             try:
                 operation_type = op.get('operation_type')
@@ -374,27 +286,21 @@ class ReplicationEngine:
                 document_id = op.get('document_id')
                 data = op.get('data')
 
-                # Deserialize timestamp strings back to datetime objects
-                # This ensures consistent storage format in MongoDB
                 data = _deserialize_timestamps(data)
 
                 if operation_type == 'insert':
-                    # Check if document already exists
                     existing = db_service.find_one(collection, {f"{collection[:-1]}_id": document_id})
                     if not existing:
                         db_service.insert_one(collection, data)
                         logger.info(f"Applied insert operation for {collection}/{document_id}")
                     else:
-                        # Check for conflicts and resolve
                         self._resolve_conflict(collection, document_id, data, existing)
 
                 elif operation_type == 'update':
-                    # Update document with conflict resolution
                     existing = db_service.find_one(collection, {f"{collection[:-1]}_id": document_id})
                     if existing:
                         self._resolve_conflict(collection, document_id, data, existing)
                     else:
-                        # Document doesn't exist locally, insert it
                         db_service.insert_one(collection, data)
                         logger.info(f"Applied update as insert for {collection}/{document_id}")
 
@@ -406,18 +312,9 @@ class ReplicationEngine:
                 logger.error(f"Error applying operation: {e}")
 
     def _record_conflict(self, collection: str, document_id: str, outcome: str):
-        """
-        Record a conflict for metrics tracking.
-
-        Args:
-            collection: Collection name
-            document_id: Document ID
-            outcome: 'remote_wins', 'local_wins', or 'unresolved'
-        """
         self.conflict_metrics['total_conflicts'] += 1
         self.conflict_metrics[outcome] += 1
 
-        # Track by collection
         if collection not in self.conflict_metrics['by_collection']:
             self.conflict_metrics['by_collection'][collection] = {
                 'total': 0,
@@ -428,7 +325,6 @@ class ReplicationEngine:
         self.conflict_metrics['by_collection'][collection]['total'] += 1
         self.conflict_metrics['by_collection'][collection][outcome] += 1
 
-        # Record recent conflict (keep last 10)
         recent = {
             'collection': collection,
             'document_id': document_id,
@@ -440,7 +336,6 @@ class ReplicationEngine:
             self.conflict_metrics['recent_conflicts'].pop(0)
 
     def get_conflict_metrics(self) -> Dict[str, Any]:
-        """Get conflict resolution metrics."""
         return self.conflict_metrics.copy()
 
     def _resolve_conflict(
@@ -450,21 +345,10 @@ class ReplicationEngine:
         remote_data: Dict[str, Any],
         local_data: Dict[str, Any]
     ):
-        """
-        Resolve conflicts using Last-Write-Wins strategy.
-
-        Args:
-            collection: Collection name
-            document_id: Document ID
-            remote_data: Data from remote region
-            local_data: Local data
-        """
         try:
-            # Last-Write-Wins based on timestamp
             remote_time = remote_data.get('last_modified') or remote_data.get('timestamp')
             local_time = local_data.get('last_modified') or local_data.get('timestamp')
 
-            # Convert timestamps to datetime objects for comparison
             if remote_time and isinstance(remote_time, str):
                 remote_time = datetime.fromisoformat(remote_time.replace('Z', '+00:00'))
             if local_time and isinstance(local_time, str):
@@ -472,7 +356,6 @@ class ReplicationEngine:
 
             if remote_time and local_time:
                 if remote_time > local_time:
-                    # Remote data is newer, update local with deserialized timestamps
                     db_service.update_one(
                         collection,
                         {f"{collection[:-1]}_id": document_id},
@@ -481,15 +364,12 @@ class ReplicationEngine:
                     logger.info(f"Resolved conflict for {collection}/{document_id} - remote wins")
                     self._record_conflict(collection, document_id, 'remote_wins')
                 else:
-                    # Local data is newer, but check if local has string timestamps that need fixing
-                    # This handles the case where old data was stored as ISO strings
                     local_has_string_timestamps = (
                         isinstance(local_data.get('timestamp'), str) or
                         isinstance(local_data.get('last_modified'), str)
                     )
 
                     if local_has_string_timestamps:
-                        # Update local data to have proper datetime objects
                         update_fields = {}
                         if isinstance(local_data.get('timestamp'), str):
                             update_fields['timestamp'] = remote_time if isinstance(remote_time, datetime) else datetime.fromisoformat(str(remote_time).replace('Z', '+00:00'))
@@ -516,17 +396,7 @@ class ReplicationEngine:
             logger.error(f"Error resolving conflict: {e}")
 
     def _get_last_sync_time(self, region_url: str) -> Optional[str]:
-        """
-        Get the timestamp of the last successful sync with a region.
-
-        Args:
-            region_url: URL of the region
-
-        Returns:
-            ISO format timestamp or None
-        """
         try:
-            # Query sync_metadata collection for last sync time
             metadata = db_service.find_one(
                 'sync_metadata',
                 {
@@ -551,15 +421,7 @@ class ReplicationEngine:
             return None
 
     def _update_last_sync_time(self, region_url: str, sync_time: datetime):
-        """
-        Update the last successful sync time with a region.
-
-        Args:
-            region_url: URL of the region
-            sync_time: Timestamp of successful sync
-        """
         try:
-            # Upsert sync metadata
             metadata = {
                 'local_region': self.local_region,
                 'remote_region': region_url,
@@ -567,7 +429,6 @@ class ReplicationEngine:
                 'last_updated': datetime.now(timezone.utc)
             }
 
-            # Check if metadata exists
             existing = db_service.find_one(
                 'sync_metadata',
                 {
@@ -577,7 +438,6 @@ class ReplicationEngine:
             )
 
             if existing:
-                # Update existing metadata
                 db_service.update_one(
                     'sync_metadata',
                     {
@@ -590,7 +450,6 @@ class ReplicationEngine:
                     }
                 )
             else:
-                # Insert new metadata
                 db_service.insert_one('sync_metadata', metadata)
 
             logger.info(f"Updated last sync time for {region_url}: {sync_time.isoformat()}")
@@ -599,30 +458,19 @@ class ReplicationEngine:
             logger.error(f"Error updating last sync time for {region_url}: {e}")
 
     def cleanup_old_operations(self, max_age_hours: int = 24):
-        """
-        Clean up old synced operations from operation_log.
-
-        Args:
-            max_age_hours: Maximum age in hours for operations to keep
-        """
         try:
             cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
 
-            # Find operations that are:
-            # 1. Older than cutoff_time
-            # 2. Synced to all remote regions
             query = {
                 'timestamp': {'$lt': cutoff_time},
                 'region_origin': self.local_region,
-                'synced_to': {'$all': self.remote_regions}  # Synced to all remotes
+                'synced_to': {'$all': self.remote_regions}
             }
 
-            # Count operations to delete
             operations = db_service.find_many('operation_log', query)
             count = len(operations)
 
             if count > 0:
-                # Delete old synced operations
                 collection = db_service.get_collection('operation_log')
                 result = collection.delete_many(query)
                 logger.info(f"Cleaned up {result.deleted_count} old operations from operation_log")
@@ -642,15 +490,6 @@ class ReplicationEngine:
         document_id: str,
         data: Dict[str, Any]
     ):
-        """
-        Queue an operation for cross-region synchronization.
-
-        Args:
-            operation_type: Type of operation (insert, update, delete)
-            collection: Collection name
-            document_id: Document ID
-            data: Document data
-        """
         try:
             operation = {
                 'operation_type': operation_type,
@@ -668,6 +507,4 @@ class ReplicationEngine:
         except Exception as e:
             logger.error(f"Error queuing operation: {e}")
 
-
-# Create singleton instance
 replication_engine = ReplicationEngine()

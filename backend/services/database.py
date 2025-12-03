@@ -1,33 +1,26 @@
-"""
-Database service for MongoDB connection and operations.
-"""
-
 from pymongo import MongoClient, ReadPreference, WriteConcern
 from pymongo.errors import ConnectionFailure, OperationFailure
 from typing import Optional, Dict, Any, List
 import logging
 
 from config import config
+from services.partitioning import PartitioningService
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class DatabaseService:
-    """Manages MongoDB connection and provides database operations."""
-
     def __init__(self):
         self.client: Optional[MongoClient] = None
         self.db = None
+        self.partitioning_service: Optional[PartitioningService] = None
         self._connect()
+        self._init_partitioning()
 
     def _connect(self):
-        """Establish connection to MongoDB replica set."""
         try:
             logger.info(f"Connecting to MongoDB: {config.MONGODB_URI}")
 
-            # Set read preference based on config
             read_pref = {
                 'primary': ReadPreference.PRIMARY,
                 'primaryPreferred': ReadPreference.PRIMARY_PREFERRED,
@@ -35,10 +28,8 @@ class DatabaseService:
                 'secondaryPreferred': ReadPreference.SECONDARY_PREFERRED
             }.get(config.MONGODB_READ_PREFERENCE, ReadPreference.PRIMARY_PREFERRED)
 
-            # Set write concern
             write_concern = WriteConcern(w=config.MONGODB_WRITE_CONCERN)
 
-            # Create MongoDB client
             self.client = MongoClient(
                 config.MONGODB_URI,
                 replicaSet=config.MONGODB_REPLICA_SET,
@@ -48,10 +39,7 @@ class DatabaseService:
                 connectTimeoutMS=5000
             )
 
-            # Test connection
             self.client.admin.command('ping')
-
-            # Get database
             self.db = self.client[config.MONGODB_DATABASE]
 
             logger.info(f"Successfully connected to MongoDB replica set: {config.MONGODB_REPLICA_SET}")
@@ -60,22 +48,50 @@ class DatabaseService:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
 
+    def _init_partitioning(self):
+        try:
+            rs_status = self.client.admin.command('replSetGetStatus')
+            members = []
+
+            for member in rs_status.get('members', []):
+                member_name = member.get('name')
+                if member_name:
+                    hostname = member_name.split(':')[0]
+                    members.append(hostname)
+
+            if members:
+                self.partitioning_service = PartitioningService(members)
+                logger.info(f"Initialized partitioning service with replica set members: {members}")
+            else:
+                self.partitioning_service = PartitioningService()
+                logger.warning("Could not retrieve replica set members, using default partitioning nodes")
+
+        except Exception as e:
+            self.partitioning_service = PartitioningService()
+            logger.warning(f"Could not initialize partitioning from replica set: {e}. Using defaults.")
+
     def get_collection(self, collection_name: str):
-        """Get a MongoDB collection."""
         if self.db is None:
             raise RuntimeError("Database connection not established")
         return self.db[collection_name]
 
-    def check_health(self) -> Dict[str, Any]:
-        """
-        Check database health and replica set status.
-        Returns health information.
-        """
-        try:
-            # Ping database
-            self.client.admin.command('ping')
+    def _get_partition_aware_read_preference(self, user_id: Optional[str] = None) -> ReadPreference:
+        if not user_id or not self.partitioning_service:
+            return {
+                'primary': ReadPreference.PRIMARY,
+                'primaryPreferred': ReadPreference.PRIMARY_PREFERRED,
+                'secondary': ReadPreference.SECONDARY,
+                'secondaryPreferred': ReadPreference.SECONDARY_PREFERRED
+            }.get(config.MONGODB_READ_PREFERENCE, ReadPreference.PRIMARY_PREFERRED)
 
-            # Get replica set status
+        target_node = self.partitioning_service.get_node_for_user(user_id)
+        logger.debug(f"Consistent hash mapped user {user_id} to node {target_node}")
+
+        return ReadPreference.NEAREST
+
+    def check_health(self) -> Dict[str, Any]:
+        try:
+            self.client.admin.command('ping')
             rs_status = self.client.admin.command('replSetGetStatus')
 
             members = []
@@ -92,13 +108,18 @@ class DatabaseService:
                 if member.get('stateStr') == 'PRIMARY':
                     primary_host = member.get('name')
 
-            return {
+            health_info = {
                 'status': 'healthy',
                 'replica_set': rs_status.get('set'),
                 'primary': primary_host,
                 'members': members,
                 'database': config.MONGODB_DATABASE
             }
+
+            if self.partitioning_service:
+                health_info['partitioning'] = self.get_partitioning_info()
+
+            return health_info
 
         except Exception as e:
             logger.error(f"Health check failed: {e}")
@@ -107,11 +128,30 @@ class DatabaseService:
                 'error': str(e)
             }
 
+    def get_partitioning_info(self) -> Dict[str, Any]:
+        if not self.partitioning_service:
+            return {
+                'enabled': False,
+                'message': 'Partitioning service not initialized'
+            }
+
+        try:
+            distribution_report = self.partitioning_service.get_distribution_report()
+            return {
+                'enabled': True,
+                'strategy': distribution_report.get('partitioning_strategy'),
+                'partition_key': distribution_report.get('partition_key'),
+                'nodes': distribution_report.get('nodes'),
+                'distribution': distribution_report.get('distribution')
+            }
+        except Exception as e:
+            logger.error(f"Error getting partitioning info: {e}")
+            return {
+                'enabled': True,
+                'error': str(e)
+            }
+
     def insert_one(self, collection_name: str, document: Dict[str, Any]) -> str:
-        """
-        Insert a single document.
-        Returns the inserted document ID.
-        """
         try:
             collection = self.get_collection(collection_name)
             result = collection.insert_one(document)
@@ -121,11 +161,28 @@ class DatabaseService:
             logger.error(f"Error inserting document into {collection_name}: {e}")
             raise
 
-    def find_one(self, collection_name: str, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Find a single document matching the query."""
+    def find_one(
+        self,
+        collection_name: str,
+        query: Dict[str, Any],
+        use_partitioning: bool = True
+    ) -> Optional[Dict[str, Any]]:
         try:
-            collection = self.get_collection(collection_name)
+            user_id = query.get('user_id') if use_partitioning else None
+            read_pref = self._get_partition_aware_read_preference(user_id)
+
+            collection = self.get_collection(collection_name).with_options(
+                read_preference=read_pref
+            )
+
             result = collection.find_one(query)
+
+            if user_id:
+                logger.debug(
+                    f"Partition-aware query for user {user_id} executed on "
+                    f"node with read preference {read_pref}"
+                )
+
             return result
         except Exception as e:
             logger.error(f"Error finding document in {collection_name}: {e}")
@@ -137,11 +194,17 @@ class DatabaseService:
         query: Dict[str, Any],
         sort: Optional[List[tuple]] = None,
         skip: Optional[int] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        use_partitioning: bool = True
     ) -> List[Dict[str, Any]]:
-        """Find multiple documents matching the query with pagination support."""
         try:
-            collection = self.get_collection(collection_name)
+            user_id = query.get('user_id') if use_partitioning else None
+            read_pref = self._get_partition_aware_read_preference(user_id)
+
+            collection = self.get_collection(collection_name).with_options(
+                read_preference=read_pref
+            )
+
             cursor = collection.find(query)
 
             if sort:
@@ -154,13 +217,19 @@ class DatabaseService:
                 cursor = cursor.limit(limit)
 
             results = list(cursor)
+
+            if user_id:
+                logger.debug(
+                    f"Partition-aware query for user {user_id} returned {len(results)} results "
+                    f"using read preference {read_pref}"
+                )
+
             return results
         except Exception as e:
             logger.error(f"Error finding documents in {collection_name}: {e}")
             raise
 
     def count(self, collection_name: str, query: Dict[str, Any]) -> int:
-        """Count documents matching the query."""
         try:
             collection = self.get_collection(collection_name)
             return collection.count_documents(query)
@@ -175,19 +244,6 @@ class DatabaseService:
         update: Dict[str, Any],
         use_operators: bool = False
     ) -> bool:
-        """
-        Update a single document.
-
-        Args:
-            collection_name: Name of the collection
-            query: Query to find the document
-            update: Update data or update operators
-            use_operators: If True, update contains operators like $set, $addToSet etc.
-                          If False, wraps update in {'$set': update}
-
-        Returns:
-            True if document was modified.
-        """
         try:
             collection = self.get_collection(collection_name)
             if use_operators:
@@ -201,10 +257,6 @@ class DatabaseService:
             raise
 
     def delete_one(self, collection_name: str, query: Dict[str, Any]) -> bool:
-        """
-        Delete a single document.
-        Returns True if document was deleted.
-        """
         try:
             collection = self.get_collection(collection_name)
             result = collection.delete_one(query)
@@ -215,11 +267,8 @@ class DatabaseService:
             raise
 
     def close(self):
-        """Close database connection."""
         if self.client:
             self.client.close()
             logger.info("MongoDB connection closed")
 
-
-# Create singleton instance
 db_service = DatabaseService()

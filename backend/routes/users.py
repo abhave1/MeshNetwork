@@ -1,7 +1,3 @@
-"""
-Users API endpoints.
-"""
-
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 import logging
@@ -11,24 +7,19 @@ from services.database import db_service
 from services.replication_engine import replication_engine
 from models.user import User
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create blueprint
 users_bp = Blueprint('users', __name__, url_prefix='/api')
-
 
 @users_bp.route('/users/<user_id>', methods=['GET'])
 def get_user(user_id):
-    """Get a specific user by ID."""
     try:
         user = db_service.find_one('users', {'user_id': user_id})
 
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        # Convert ObjectId to string
         user['_id'] = str(user['_id'])
 
         return jsonify(user), 200
@@ -37,20 +28,14 @@ def get_user(user_id):
         logger.error(f"Error getting user {user_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
-
 @users_bp.route('/users', methods=['POST'])
 def create_user():
-    """
-    Create a new user.
-    Request body should contain user data.
-    """
     try:
         data = request.get_json()
 
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        # Create User object
         user = User(
             name=data.get('name'),
             email=data.get('email'),
@@ -60,21 +45,17 @@ def create_user():
             reputation=data.get('reputation', 0)
         )
 
-        # Validate user
         is_valid, error_message = user.validate()
         if not is_valid:
             return jsonify({'error': error_message}), 400
 
-        # Check if user with email already exists
         existing_user = db_service.find_one('users', {'email': user.email})
         if existing_user:
             return jsonify({'error': 'User with this email already exists'}), 409
 
-        # Insert into database
         user_dict = user.to_dict()
         db_service.insert_one('users', user_dict)
 
-        # Queue for cross-region replication
         replication_engine.queue_operation(
             'insert',
             'users',
@@ -94,25 +75,18 @@ def create_user():
         logger.error(f"Error creating user: {e}")
         return jsonify({'error': str(e)}), 500
 
-
 @users_bp.route('/users/<user_id>', methods=['PUT'])
 def update_user(user_id):
-    """
-    Update an existing user.
-    Request body should contain fields to update.
-    """
     try:
         data = request.get_json()
 
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        # Check if user exists
         existing_user = db_service.find_one('users', {'user_id': user_id})
         if not existing_user:
             return jsonify({'error': 'User not found'}), 404
 
-        # Update allowed fields
         update_data = {}
         allowed_fields = ['name', 'location', 'verified', 'reputation']
 
@@ -120,10 +94,8 @@ def update_user(user_id):
             if field in data:
                 update_data[field] = data[field]
 
-        # Update in database
         db_service.update_one('users', {'user_id': user_id}, update_data)
 
-        # Queue for cross-region replication
         replication_engine.queue_operation(
             'update',
             'users',
@@ -142,13 +114,8 @@ def update_user(user_id):
         logger.error(f"Error updating user {user_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
-
 @users_bp.route('/mark-safe', methods=['POST'])
 def mark_user_safe():
-    """
-    Mark a user as safe.
-    Request body should contain user_id.
-    """
     try:
         data = request.get_json()
 
@@ -157,12 +124,10 @@ def mark_user_safe():
 
         user_id = data['user_id']
 
-        # Check if user exists
         existing_user = db_service.find_one('users', {'user_id': user_id})
         if not existing_user:
             return jsonify({'error': 'User not found'}), 404
 
-        # Create a safety status post
         from models.post import Post
 
         safety_post = Post(
@@ -173,11 +138,9 @@ def mark_user_safe():
             region=existing_user.get('region', config.REGION)
         )
 
-        # Insert safety post
         post_dict = safety_post.to_dict()
         db_service.insert_one('posts', post_dict)
 
-        # Queue for cross-region replication
         replication_engine.queue_operation(
             'insert',
             'posts',

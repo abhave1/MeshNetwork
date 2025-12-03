@@ -20,7 +20,6 @@ During natural disasters, communication infrastructure fails. MeshNetwork allows
 
 - **Island Mode:** Regions continue operating when isolated from other regions
 - **Automatic Failover:** If primary MongoDB node fails, secondary automatically promoted
-- **Query Routing:** Queries go to local region first (fast), then global if needed
 - **Cross-Region Sync:** Background process propagates updates between regions
 - **Last-Write-Wins:** Timestamp-based conflict resolution
 
@@ -82,7 +81,14 @@ This script:
 
 ### 5. Verify Everything is Working
 
-Check backend health:
+Run the automated verification script to check all services, database connections, and cross-region connectivity:
+
+```bash
+chmod +x scripts/verify-setup.sh
+./scripts/verify-setup.sh
+```
+
+Alternatively, you can manually check backend health:
 ```bash
 curl http://localhost:5010/health
 curl http://localhost:5011/health
@@ -92,6 +98,25 @@ curl http://localhost:5012/health
 Check detailed status:
 ```bash
 curl http://localhost:5010/status | jq
+```
+
+### 6. Restart Flask backends
+
+If facing issues with Step 5, run this command:
+```bash
+docker restart flask-backend-na flask-backend-eu flask-backend-ap
+```
+
+### 7. Initialize Data
+
+To create mock data that will be replicated to all servers, use the following command:
+```bash
+python generate_data.py --users <number of users> --posts-per-user <number of posts per user>
+```
+
+For default 1 million posts:
+```bash
+python generate_data.py --users 10000 --posts-per-user 100 
 ```
 
 ## Usage
@@ -191,6 +216,43 @@ chmod +x scripts/simulate-partition.sh
 
 **Expected result:** The isolated region continues serving requests locally, queues changes for sync, and successfully syncs when reconnected.
 
+### Advanced Failure Testing
+
+For more complex failure scenarios, use the scripts in `scripts/failure-tests/`:
+
+```bash
+# Run all failure tests suite
+./scripts/failure-tests/run-all-tests.sh
+
+# Test specific scenarios
+./scripts/failure-tests/test-single-node-failure.sh
+./scripts/failure-tests/test-primary-failure.sh
+./scripts/failure-tests/test-network-partition.sh
+./scripts/failure-tests/test-cascading-failure.sh
+```
+
+You can also use `scripts/partition-region.sh` for more granular network partition control (blocking specific host entries) instead of full network disconnection:
+
+```bash
+./scripts/partition-region.sh na partition  # Partition North America
+./scripts/partition-region.sh na restore    # Restore North America
+./scripts/partition-region.sh status        # Check partition status
+```
+
+### Performance & Phase Testing
+
+The project includes specific test scripts for performance and replication phases:
+
+```bash
+# Phase 2: Performance Testing
+python test_phase2_performance.py
+
+# Phase 3: Replication Testing
+python test_phase3_replication.py
+```
+
+See `TEST_EXECUTION_SUMMARY.md` for details on test execution and `TEST_RESULTS_*.txt` for past results.
+
 ### Manual Testing Scenarios
 
 #### 1. Test Cross-Region Data Visibility
@@ -227,35 +289,6 @@ sleep 10
 
 # Verify post appears in other regions
 curl http://localhost:5010/api/posts
-```
-
-## Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         React Frontend                          │
-│                     http://localhost:3000                       │
-└────────────┬────────────────────────────────────┬──────────────┘
-             │                                     │
-             │         Global Network              │
-             │                                     │
-┌────────────┴──────────┐         ┌───────────────┴──────────────┐
-│   North America       │         │   Europe          │   Asia-Pacific  │
-│   Region              │◄────────┤   Region          │   Region        │
-└───────────────────────┘         └───────────────────┴─────────────────┘
-│                                 │                   │
-│  Flask Backend (5010)           │  Flask Backend (5011)  │  Flask Backend (5012)
-│       │                         │       │           │       │
-│       ├─MongoDB Primary         │       ├─MongoDB Primary  │       ├─MongoDB Primary
-│       ├─MongoDB Secondary       │       ├─MongoDB Secondary│       ├─MongoDB Secondary
-│       └─MongoDB Secondary       │       └─MongoDB Secondary│       └─MongoDB Secondary
-│                                 │                   │
-│  Replica Set: rs-na             │  Replica Set: rs-eu     │  Replica Set: rs-ap
-└─────────────────────────────────┴────────────────────────────────────┘
-
-Key:
-◄────► Cross-region async replication
-├─     Replica set member
 ```
 
 ## Database Schema
@@ -337,127 +370,6 @@ Used for cross-region synchronization:
 | MongoDB AP Primary | 27023 |
 | MongoDB AP Secondary1 | 27024 |
 | MongoDB AP Secondary2 | 27025 |
-
-## Troubleshooting
-
-### Services Won't Start
-
-```bash
-# Check service status
-docker-compose ps
-
-# Check logs for specific service
-docker-compose logs flask-backend-na
-docker-compose logs mongodb-na-primary
-
-# Restart all services
-docker-compose restart
-```
-
-### Replica Set Initialization Failed
-
-```bash
-# Check MongoDB logs
-docker-compose logs mongodb-na-primary
-
-# Manually check replica set status
-docker exec mongodb-na-primary mongosh --eval "rs.status()"
-
-# Re-run initialization
-./scripts/init-all-replicas.sh
-```
-
-### Backend Can't Connect to MongoDB
-
-```bash
-# Check if MongoDB is healthy
-docker exec mongodb-na-primary mongosh --eval "db.runCommand('ping')"
-
-# Check backend logs
-docker-compose logs flask-backend-na
-
-# Restart backend
-docker-compose restart flask-backend-na
-```
-
-### Frontend Can't Connect to Backend
-
-```bash
-# Check backend is running
-curl http://localhost:5010/health
-
-# Check CORS is enabled
-curl -H "Origin: http://localhost:3000" http://localhost:5010/health -v
-
-# Check frontend logs
-docker-compose logs react-frontend
-```
-
-### Clean Reset
-
-To completely reset the system:
-
-```bash
-# Stop all services
-docker-compose down
-
-# Remove all volumes (WARNING: deletes all data)
-docker-compose down -v
-
-# Remove all containers and images
-docker-compose down --rmi all
-
-# Start fresh
-docker-compose up -d
-./scripts/init-all-replicas.sh
-```
-
-## Development
-
-### Running Backend Locally (Outside Docker)
-
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variables
-export REGION=north_america
-export MONGODB_URI=mongodb://localhost:27017,localhost:27018,localhost:27019/meshnetwork?replicaSet=rs-na
-export FLASK_PORT=5010
-
-# Run
-python app.py
-```
-
-### Running Frontend Locally
-
-```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start development server
-npm start
-```
-
-### Running Tests
-
-```bash
-cd backend
-
-# Run unit tests
-pytest
-
-# Run with coverage
-pytest --cov=.
-```
 
 ## API Documentation
 
@@ -542,65 +454,3 @@ Create a new user.
 
 #### POST /api/mark-safe
 Mark a user as safe (creates a safety status post).
-
-## Performance Considerations
-
-### Write Performance
-- Writes require majority acknowledgment within replica set
-- Cross-region replication is asynchronous (eventual consistency)
-- Expected write latency: 10-50ms (local), 100-500ms (cross-region)
-
-### Read Performance
-- Reads from primary or secondaries (primaryPreferred)
-- Local queries are fast (< 10ms)
-- Cross-region queries may be slower (100-500ms)
-
-### Scalability
-- Each region can handle ~1000 req/sec
-- Horizontal scaling: Add more replica set members
-- Sharding: Can add hash-based sharding within regions
-
-## CAP Theorem Trade-offs
-
-This system is **AP (Availability + Partition Tolerance)**:
-
-- ✅ **Availability:** Each region continues operating during partitions
-- ✅ **Partition Tolerance:** System functions despite network failures
-- ⚠️ **Consistency:** Eventual consistency across regions (not strong consistency)
-
-### Consistency Model
-
-- **Strong consistency** within a region (replica set)
-- **Eventual consistency** across regions
-- **Conflict resolution:** Last-Write-Wins based on timestamps
-
-## Future Enhancements
-
-- [ ] User authentication and authorization
-- [ ] Real-time updates using WebSockets
-- [ ] Map view with geospatial queries
-- [ ] Push notifications for nearby help requests
-- [ ] Image upload support
-- [ ] Mobile app (React Native)
-- [ ] Load balancing with multiple backend instances per region
-- [ ] Monitoring dashboard (Grafana + Prometheus)
-- [ ] Automated testing with GitHub Actions
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Contributors
-
-Built for CSE 512 Distributed Database Systems
-
-## Support
-
-For issues or questions:
-1. Check the Troubleshooting section
-2. Review Docker logs: `docker-compose logs`
-3. Open an issue on GitHub
-
----
-
-**Note:** This is an educational project demonstrating distributed systems concepts. Not intended for production use without additional security and reliability improvements.

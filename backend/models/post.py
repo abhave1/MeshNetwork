@@ -1,15 +1,8 @@
-"""
-Post model for MeshNetwork application.
-"""
-
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import uuid
 
-
 class Post:
-    """Post data model."""
-
     def __init__(
         self,
         post_id: Optional[str] = None,
@@ -33,7 +26,6 @@ class Post:
         self.last_modified = last_modified or datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert post to dictionary for MongoDB storage."""
         data = {
             "post_id": self.post_id,
             "user_id": self.user_id,
@@ -45,7 +37,6 @@ class Post:
             "last_modified": self.last_modified
         }
 
-        # Only include capacity if it's set (for shelters)
         if self.capacity is not None:
             data["capacity"] = self.capacity
 
@@ -53,7 +44,6 @@ class Post:
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> 'Post':
-        """Create Post object from dictionary."""
         return Post(
             post_id=data.get('post_id'),
             user_id=data.get('user_id', ''),
@@ -67,10 +57,6 @@ class Post:
         )
 
     def validate(self) -> tuple[bool, Optional[str]]:
-        """
-        Validate post data.
-        Returns (is_valid, error_message).
-        """
         if not self.user_id:
             return False, "User ID is required"
 
@@ -87,7 +73,6 @@ class Post:
         if not self.region:
             return False, "Region is required"
 
-        # Validate location structure
         if not isinstance(self.location, dict):
             return False, "Location must be an object"
 
@@ -105,7 +90,6 @@ class Post:
         except (ValueError, TypeError):
             return False, "Coordinates must be numeric values"
 
-        # Validate capacity for shelters
         if self.post_type == 'shelter' and self.capacity is not None:
             if not isinstance(self.capacity, int) or self.capacity < 0:
                 return False, "Capacity must be a non-negative integer"

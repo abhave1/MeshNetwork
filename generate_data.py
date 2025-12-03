@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-MeshNetwork Data Generator
-
-Generates users and posts across 3 regions, then replicates all data
-to all regions for full cross-region availability.
-
-Usage:
-    python generate_data.py --users 100 --posts-per-user 10
-"""
-
 import argparse
 import random
 import uuid
@@ -22,11 +11,6 @@ except ImportError:
     print("ERROR: Required packages not installed.")
     print("Run: pip install pymongo faker")
     sys.exit(1)
-
-
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
 MONGO_URIS = {
     'NA': 'mongodb://localhost:27017/?directConnection=true&w=1',
@@ -55,19 +39,14 @@ MESSAGES = {
 
 BATCH_SIZE = 2000
 
-
-# =============================================================================
-# HELPERS
-# =============================================================================
-
 def progress(current, total, prefix=''):
-    pct = 100 * current / total if total > 0 else 0
-    bar = '█' * int(40 * current // total) + '░' * (40 - int(40 * current // total))
-    sys.stdout.write(f'\r  {prefix} |{bar}| {pct:.1f}% ({current:,}/{total:,})')
+    if total == 0:
+        return
+    pct = 100 * current / total
+    sys.stdout.write(f'\r{prefix}: {pct:.1f}% ({current}/{total})')
     sys.stdout.flush()
     if current == total:
         print()
-
 
 def get_location(region_code):
     r = REGIONS[region_code]
@@ -75,7 +54,6 @@ def get_location(region_code):
         round(random.uniform(*r['lon']), 6),
         round(random.uniform(*r['lat']), 6)
     ]}
-
 
 def make_user(faker, region_code):
     return {
@@ -86,7 +64,6 @@ def make_user(faker, region_code):
         'location': get_location(region_code),
         'created_at': datetime.now(timezone.utc)
     }
-
 
 def make_post(user_id, region_code):
     post_type = random.choice(POST_TYPES)
@@ -103,11 +80,6 @@ def make_post(user_id, region_code):
         post['capacity'] = random.randint(10, 200)
     return post
 
-
-# =============================================================================
-# MAIN
-# =============================================================================
-
 def main():
     parser = argparse.ArgumentParser(description='Generate MeshNetwork test data')
     parser.add_argument('--users', '-u', type=int, default=100, help='Number of users')
@@ -118,15 +90,10 @@ def main():
     posts_per_user = args.posts_per_user
     total_posts = num_users * posts_per_user
 
-    print("=" * 60)
-    print("MESHNETWORK DATA GENERATOR")
-    print("=" * 60)
-    print(f"  Users: {num_users:,}")
-    print(f"  Posts per user: {posts_per_user}")
-    print(f"  Total posts: {total_posts:,}")
-    print("=" * 60)
+    print("Generating Data")
+    print(f"Users: {num_users}")
+    print(f"Posts per user: {posts_per_user}")
 
-    # Connect
     print("\nConnecting...")
     connections = {}
     for code in REGIONS:
@@ -134,20 +101,18 @@ def main():
             client = MongoClient(MONGO_URIS[code], serverSelectionTimeoutMS=5000)
             client.admin.command('ping')
             connections[code] = client[DATABASE_NAME]
-            print(f"  ✓ {REGIONS[code]['display']}")
+            print(f"  Connected to {REGIONS[code]['display']}")
         except Exception as e:
-            print(f"  ✗ {code}: {e}")
+            print(f"  Failed {code}: {e}")
             return
 
-    # Clear all data
     print("\nClearing data...")
     for code, db in connections.items():
         db.users.drop()
         db.posts.drop()
         db.operation_log.drop()
-        print(f"  ✓ {code} cleared")
+        print(f"  {code} cleared")
 
-    # Initialize
     faker = Faker()
     Faker.seed(42)
     random.seed(42)
@@ -157,7 +122,6 @@ def main():
     region_codes = list(REGIONS.keys())
     users_per_region = num_users // 3
 
-    # Generate users
     print("\nGenerating users...")
     created = 0
     for idx, code in enumerate(region_codes):
@@ -178,7 +142,6 @@ def main():
             created += len(batch)
             progress(created, num_users, "Users")
 
-    # Generate posts
     print("\nGenerating posts...")
     created = 0
     for code in region_codes:
@@ -200,13 +163,11 @@ def main():
             created += len(batch)
             progress(created, total_posts, "Posts")
 
-    # Replicate to all regions
     print("\nReplicating data to all regions...")
     for target_code in region_codes:
         target_db = connections[target_code]
         target_region = REGIONS[target_code]['name']
 
-        # Copy users from other regions
         users_to_copy = [u.copy() for u in all_users if u['region'] != target_region]
         for u in users_to_copy:
             u.pop('_id', None)
@@ -214,7 +175,6 @@ def main():
             for i in range(0, len(users_to_copy), BATCH_SIZE):
                 target_db.users.insert_many(users_to_copy[i:i+BATCH_SIZE], ordered=False)
         
-        # Copy posts from other regions
         posts_to_copy = [p.copy() for p in all_posts if p['region'] != target_region]
         for p in posts_to_copy:
             p.pop('_id', None)
@@ -225,17 +185,12 @@ def main():
                 copied += min(BATCH_SIZE, len(posts_to_copy) - i)
                 progress(copied, len(posts_to_copy), f"{target_code}")
 
-    # Summary
-    print("\n" + "=" * 60)
-    print("COMPLETE")
-    print("=" * 60)
+    print("\nComplete")
     for code, db in connections.items():
         try:
-            print(f"  {code}: {db.users.count_documents({}):,} users, {db.posts.count_documents({}):,} posts")
+            print(f"  {code}: {db.users.count_documents({})} users, {db.posts.count_documents({})} posts")
         except:
             print(f"  {code}: (connection lost)")
-    print("=" * 60)
-
 
 if __name__ == '__main__':
     main()

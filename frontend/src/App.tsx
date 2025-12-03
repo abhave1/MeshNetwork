@@ -1,7 +1,3 @@
-/**
- * Main App component for MeshNetwork frontend.
- */
-
 import React, { useState, useEffect } from 'react';
 import api from './services/api';
 import { Post, RegionEndpoint } from './types';
@@ -19,11 +15,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [regionHealth, setRegionHealth] = useState<any>(null);
-
-  // All regions health status for the overview panel
   const [allRegionsHealth, setAllRegionsHealth] = useState<Record<string, any>>({});
 
-  // New post form state
   const [showPostForm, setShowPostForm] = useState(false);
   const [newPost, setNewPost] = useState({
     user_id: '',
@@ -33,11 +26,9 @@ function App() {
     latitude: 37.7749,
   });
 
-  // Mark safe form state
   const [showMarkSafeForm, setShowMarkSafeForm] = useState(false);
   const [safeUserId, setSafeUserId] = useState('');
 
-  // View nearby form state
   const [showNearbyForm, setShowNearbyForm] = useState(false);
   const [nearbyLocation, setNearbyLocation] = useState({
     latitude: 37.7749,
@@ -47,41 +38,35 @@ function App() {
   const [nearbyPosts, setNearbyPosts] = useState<Post[]>([]);
   const [showingNearby, setShowingNearby] = useState(false);
 
-  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPosts, setTotalPosts] = useState(0);
   const postsPerPage = 50;
 
-  // Live-updating island mode timer
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Update current time every second for live timer
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-    }, 1000); // Update every second
+    }, 1000);
 
     return () => clearInterval(timer);
   }, []);
 
-  // Load posts when region changes
   useEffect(() => {
     api.setBaseUrl(selectedRegion.url);
-    setCurrentPage(1); // Reset to first page when switching regions
+    setCurrentPage(1);
     loadPosts(1);
     loadRegionHealth();
   }, [selectedRegion]);
 
-  // Poll region health every 5 seconds for real-time island mode updates
   useEffect(() => {
     const healthInterval = setInterval(() => {
       loadRegionHealth();
-    }, 5000); // Poll every 5 seconds
+    }, 5000);
 
     return () => clearInterval(healthInterval);
   }, [selectedRegion]);
 
-  // Load health status for all regions
   const loadAllRegionsHealth = async () => {
     const healthResults: Record<string, any> = {};
     
@@ -103,9 +88,8 @@ function App() {
     setAllRegionsHealth(healthResults);
   };
 
-  // Poll all regions health every 5 seconds
   useEffect(() => {
-    loadAllRegionsHealth(); // Initial load
+    loadAllRegionsHealth();
     const allHealthInterval = setInterval(() => {
       loadAllRegionsHealth();
     }, 5000);
@@ -118,7 +102,6 @@ function App() {
     setError(null);
     try {
       const skip = (page - 1) * postsPerPage;
-      // Use region='all' to show posts from all regions (cross-region sync)
       const response = await api.getPosts({ 
         limit: postsPerPage, 
         skip: skip,
@@ -129,7 +112,6 @@ function App() {
       setCurrentPage(page);
     } catch (err: any) {
       setError(err.message || 'Failed to load posts');
-      console.error('Error loading posts:', err);
     } finally {
       setLoading(false);
     }
@@ -140,7 +122,7 @@ function App() {
       const status = await api.getStatus();
       setRegionHealth(status);
     } catch (err) {
-      console.error('Error loading region health:', err);
+      // Silent failure for health check
     }
   };
 
@@ -167,7 +149,6 @@ function App() {
         region: selectedRegion.code,
       });
 
-      // Reset form
       setNewPost({
         user_id: '',
         post_type: 'help',
@@ -177,11 +158,9 @@ function App() {
       });
       setShowPostForm(false);
 
-      // Reload posts (go to first page to see new post)
       loadPosts(1);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create post');
-      console.error('Error creating post:', err);
     }
   };
 
@@ -193,12 +172,9 @@ function App() {
       await api.markUserSafe(safeUserId);
       setSafeUserId('');
       setShowMarkSafeForm(false);
-
-      // Reload posts to show the new safety status (go to first page)
       loadPosts(1);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to mark user as safe');
-      console.error('Error marking user safe:', err);
     }
   };
 
@@ -219,7 +195,6 @@ function App() {
       setShowNearbyForm(false);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to load nearby updates');
-      console.error('Error loading nearby updates:', err);
     } finally {
       setLoading(false);
     }
@@ -239,8 +214,6 @@ function App() {
 
   const formatTimestamp = (timestamp: string): string => {
     const date = new Date(timestamp);
-
-    // Always display in UTC
     const utcString = date.toLocaleString('en-US', {
       timeZone: 'UTC',
       year: 'numeric',
@@ -251,7 +224,6 @@ function App() {
       second: '2-digit',
       hour12: false
     });
-
     return `${utcString} UTC`;
   };
 
@@ -270,26 +242,20 @@ function App() {
   };
 
   const calculateIslandDuration = (): number | null => {
-    // Use the backend-provided isolation_start and calculate elapsed time
     if (!regionHealth?.island_mode?.isolation_start) {
       return null;
     }
 
-    // Parse the ISO timestamp from backend
     const startTime = new Date(regionHealth.island_mode.isolation_start);
     
-    // Check if the date is valid
     if (isNaN(startTime.getTime())) {
-      console.warn('Invalid isolation_start timestamp:', regionHealth.island_mode.isolation_start);
-      // Fallback to backend-provided duration
       return regionHealth?.island_mode?.isolation_duration_seconds ?? null;
     }
 
-    const elapsed = (currentTime.getTime() - startTime.getTime()) / 1000; // Convert to seconds
+    const elapsed = (currentTime.getTime() - startTime.getTime()) / 1000;
     return Math.max(0, elapsed);
   };
 
-  // Calculate island duration for any region's health data
   const calculateRegionIslandDuration = (health: any): number | null => {
     if (!health?.island_mode?.isolation_start) {
       return null;
@@ -305,27 +271,15 @@ function App() {
     return Math.max(0, elapsed);
   };
 
-  // Get region display info
-  const getRegionEmoji = (code: string): string => {
-    const emojis: Record<string, string> = {
-      'north_america': '🌎',
-      'europe': '🌍',
-      'asia_pacific': '🌏'
-    };
-    return emojis[code] || '🌐';
-  };
-
   return (
     <div className="App">
-      {/* Header */}
       <header className="app-header">
         <h1>MeshNetwork</h1>
         <p>Disaster Resilient Social Platform</p>
       </header>
 
-      {/* All Regions Status Panel */}
       <div className="all-regions-panel">
-        <h3>🌐 Global Region Status</h3>
+        <h3>Global Region Status</h3>
         <div className="regions-grid">
           {REGIONS.map((region) => {
             const health = allRegionsHealth[region.code];
@@ -341,28 +295,27 @@ function App() {
                 onClick={() => setSelectedRegion(region)}
               >
                 <div className="region-header">
-                  <span className="region-emoji">{getRegionEmoji(region.code)}</span>
                   <span className="region-name">{region.name}</span>
                   {selectedRegion.code === region.code && <span className="current-badge">VIEWING</span>}
                 </div>
                 
                 {isUnreachable ? (
                   <div className="region-status unreachable">
-                    <span className="status-indicator">❌</span>
+                    <span className="status-indicator">X</span>
                     <span>Unreachable</span>
                   </div>
                 ) : (
                   <>
                     <div className="region-status">
                       <span className={`status-indicator ${health?.database?.status === 'healthy' ? 'healthy' : 'degraded'}`}>
-                        {health?.database?.status === 'healthy' ? '✅' : '⚠️'}
+                        {health?.database?.status === 'healthy' ? 'OK' : '!'}
                       </span>
                       <span>DB: {health?.database?.status || 'unknown'}</span>
                     </div>
                     
                     {isIsland ? (
                       <div className="region-island-status">
-                        <span className="island-indicator">🏝️</span>
+                        <span className="island-indicator">!</span>
                         <span className="island-label">ISLAND MODE</span>
                         <span className="island-timer">
                           {islandDuration !== null 
@@ -374,7 +327,7 @@ function App() {
                       </div>
                     ) : isSuspect ? (
                       <div className="region-suspect-status">
-                        <span className="suspect-indicator">⚠️</span>
+                        <span className="suspect-indicator">!</span>
                         <span className="suspect-label">SUSPECT</span>
                         <span className="suspect-timer">
                           {islandDuration !== null 
@@ -386,7 +339,7 @@ function App() {
                       </div>
                     ) : (
                       <div className="region-connected-status">
-                        <span className="connected-indicator">🔗</span>
+                        <span className="connected-indicator">O</span>
                         <span>Connected ({health?.island_mode?.connected_regions || 0}/{health?.island_mode?.total_regions || 0} regions)</span>
                       </div>
                     )}
@@ -398,7 +351,6 @@ function App() {
         </div>
       </div>
 
-      {/* Region Selector */}
       <div className="region-selector">
         <label htmlFor="region">Connected Region: </label>
         <select
@@ -418,10 +370,9 @@ function App() {
         </span>
       </div>
 
-      {/* Island Mode Warning */}
       {regionHealth?.island_mode?.active && (
         <div className="island-mode-warning">
-          <div className="warning-icon">⚠️</div>
+          <div className="warning-icon">!</div>
           <div className="warning-content">
             <strong>ISLAND MODE ACTIVE</strong>
             <p>
@@ -429,7 +380,7 @@ function App() {
               {' '}Local operations continue normally, but cross-region sync is paused.
             </p>
             <p style={{ marginTop: '8px', fontWeight: 600, fontSize: '1.1em' }}>
-              ⏱️ Isolated for:{' '}
+              Isolated for:{' '}
               <span style={{ color: '#ff6b35', fontFamily: 'monospace' }}>
                 {calculateIslandDuration() !== null 
                   ? formatDuration(calculateIslandDuration()!)
@@ -442,7 +393,6 @@ function App() {
         </div>
       )}
 
-      {/* System Status */}
       {regionHealth && (
         <div className="system-status">
           <h3>System Status</h3>
@@ -463,7 +413,6 @@ function App() {
         </div>
       )}
 
-      {/* Error Display */}
       {error && (
         <div className="error-message">
           <strong>Error:</strong> {error}
@@ -471,7 +420,6 @@ function App() {
         </div>
       )}
 
-      {/* Action Buttons */}
       <div className="action-buttons">
         <button onClick={() => loadPosts(currentPage)} disabled={loading}>
           {loading ? 'Loading...' : 'Refresh Posts'}
@@ -480,10 +428,10 @@ function App() {
           {showPostForm ? 'Hide Form' : 'Create Post'}
         </button>
         <button onClick={() => setShowMarkSafeForm(!showMarkSafeForm)}>
-          {showMarkSafeForm ? 'Hide' : '✓ Mark Safe'}
+          {showMarkSafeForm ? 'Hide' : 'Mark Safe'}
         </button>
         <button onClick={() => setShowNearbyForm(!showNearbyForm)}>
-          {showNearbyForm ? 'Hide' : '📍 View Nearby'}
+          {showNearbyForm ? 'Hide' : 'View Nearby'}
         </button>
         {showingNearby && (
           <button onClick={() => { setShowingNearby(false); loadPosts(1); }}>
@@ -492,7 +440,6 @@ function App() {
         )}
       </div>
 
-      {/* Post Form */}
       {showPostForm && (
         <div className="post-form">
           <h3>Create New Post</h3>
@@ -559,10 +506,9 @@ function App() {
         </div>
       )}
 
-      {/* Mark Safe Form */}
       {showMarkSafeForm && (
         <div className="post-form">
-          <h3>✓ Mark User as Safe</h3>
+          <h3>Mark User as Safe</h3>
           <p style={{ color: '#666', marginBottom: '15px' }}>
             Create a safety status post to let others know you're safe
           </p>
@@ -582,10 +528,9 @@ function App() {
         </div>
       )}
 
-      {/* View Nearby Form */}
       {showNearbyForm && (
         <div className="post-form">
-          <h3>📍 View Nearby Help Requests</h3>
+          <h3>View Nearby Help Requests</h3>
           <p style={{ color: '#666', marginBottom: '15px' }}>
             Find help requests near a specific location
           </p>
@@ -630,7 +575,6 @@ function App() {
         </div>
       )}
 
-      {/* Posts Feed */}
       <div className="posts-container">
         <div className="posts-header">
           <h2>
@@ -671,11 +615,11 @@ function App() {
                   </div>
                   <div className="post-content">
                     <div className="post-user">
-                      <strong>👤 {post.user_id}</strong>
+                      <strong>{post.user_id}</strong>
                     </div>
                     <p className="post-message">{post.message}</p>
                     <div className="post-meta">
-                      <span className="post-region">📍 {post.region}</span>
+                      <span className="post-region">{post.region}</span>
                       {post.capacity && (
                         <span className="post-capacity">Capacity: {post.capacity}</span>
                       )}
@@ -688,7 +632,6 @@ function App() {
               ))}
             </div>
 
-            {/* Pagination Controls */}
             {!showingNearby && totalPosts > postsPerPage && (
               <div className="pagination-controls">
                 <button 
@@ -696,14 +639,14 @@ function App() {
                   disabled={currentPage === 1 || loading}
                   className="pagination-btn"
                 >
-                  ⏮ First
+                  First
                 </button>
                 <button 
                   onClick={() => loadPosts(currentPage - 1)} 
                   disabled={currentPage === 1 || loading}
                   className="pagination-btn"
                 >
-                  ← Previous
+                  Previous
                 </button>
                 <span className="pagination-current">
                   Page {currentPage} of {Math.ceil(totalPosts / postsPerPage)}
@@ -713,14 +656,14 @@ function App() {
                   disabled={currentPage >= Math.ceil(totalPosts / postsPerPage) || loading}
                   className="pagination-btn"
                 >
-                  Next →
+                  Next
                 </button>
                 <button 
                   onClick={() => loadPosts(Math.ceil(totalPosts / postsPerPage))} 
                   disabled={currentPage >= Math.ceil(totalPosts / postsPerPage) || loading}
                   className="pagination-btn"
                 >
-                  Last ⏭
+                  Last
                 </button>
               </div>
             )}

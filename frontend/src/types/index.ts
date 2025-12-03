@@ -1,10 +1,6 @@
-/**
- * Type definitions for MeshNetwork frontend.
- */
-
 export interface Location {
   type: 'Point';
-  coordinates: [number, number]; // [longitude, latitude]
+  coordinates: [number, number];
 }
 
 export interface Post {
